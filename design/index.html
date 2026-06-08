@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Toffoli — the undo layer for AI agents</title>
+<link rel="stylesheet" href="fonts.css" />
+<style>
+  :root{--desk:#1A1714;--desk-2:#221C17;--paper:#F4EFE3;--edge:#DCD0B6;--ink:#26221E;--ink-2:#5C5346;--ink-faint:#8A7E6B;--restored:#1E5E3A;--seam:#9A6A1E;--escalate:#8A2D2D;--serif:"Spectral",Georgia,serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+  *{box-sizing:border-box}html,body{margin:0}
+  body{background:radial-gradient(120% 100% at 50% 0%,var(--desk-2),var(--desk));min-height:100vh;padding:56px 16px;font-family:var(--serif);color:var(--ink);display:flex;flex-direction:column;align-items:center;gap:18px}
+  .num{font-family:var(--mono)}
+  .card{width:720px;max-width:100%;background:linear-gradient(180deg,var(--paper),#ECE3D1);border:1px solid var(--edge);padding:34px 38px}
+  .wordmark{font-weight:600;letter-spacing:.14em;font-variant:small-caps;font-size:13px;color:var(--ink-2)}
+  h1{font-weight:600;font-size:32px;margin:2px 0 4px;letter-spacing:-.01em}
+  .sub{font-style:italic;color:var(--ink-2);font-size:15px}
+  p{font-size:14.5px;line-height:1.55;color:var(--ink-2)}
+  .rule{border:none;border-top:1px solid var(--edge);margin:18px 0}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--ink-faint);font-variant:small-caps;letter-spacing:.04em;margin:6px 0 2px}
+  .legend b{font-family:var(--mono);font-variant:normal}
+  .links{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}
+  a.tile{display:block;border:1px solid var(--edge);padding:16px 18px;text-decoration:none;color:var(--ink);background:#fff6;transition:border-color .15s}
+  a.tile:hover{border-color:var(--ink-2)}
+  a.tile .t{font-weight:600;font-size:15px}
+  a.tile .d{font-size:12.5px;color:var(--ink-2);margin-top:3px}
+  .meta{font-size:12px;color:var(--ink-faint);font-family:var(--mono);margin-top:14px}
+  .meta a{color:var(--escalate)}
+  .caption{text-align:center;color:#C9BFAE;font-family:var(--mono);font-size:11px;max-width:720px}
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="wordmark">⊶ Toffoli</div>
+    <h1>The undo layer for AI agents.</h1>
+    <div class="sub">classify every agent action reversible / compensable / irreversible, plan &amp; execute the restitution, escalate only what truly can't be undone.</div>
+    <hr class="rule" />
+    <p>When an agent damages real state — deletes the wrong rows, double-charges, half-runs a migration — the industry built tools to <em>detect</em> it and almost none to <em>recover</em>. Toffoli is the recovery half: a deterministic-first classifier, a dependency-aware planner that actually runs and verifies the undo on a sandboxed world, cryptographically attested recovery context, and a formal "never under-call" soundness property checked over hundreds of generated cases.</p>
+    <div class="legend">
+      <span><b style="color:var(--ink-faint)">·</b> no effect</span>
+      <span><b style="color:var(--restored)">‹</b> restored (exact)</span>
+      <span><b style="color:var(--seam)">~</b> compensated (semantic)</span>
+      <span><b style="color:var(--escalate)">!</b> requires human (irreversible)</span>
+    </div>
+    <div class="links">
+      <a class="tile" href="recovery-explorer.html">
+        <div class="t">▶ Recovery Explorer</div>
+        <div class="d">Drag the handle to undo back to a point — watch the verdict flip when you cross the pivot.</div>
+      </a>
+      <a class="tile" href="restitution-receipt.html">
+        <div class="t">▤ Restitution Receipt</div>
+        <div class="d">The design language: a reversing-ledger × art-conservation receipt with the measured eval.</div>
+      </a>
+    </div>
+    <div class="meta">measured: IRREVERSIBLE recall <span class="num">0.71</span> (95% CI 0.45–0.88) · 0 dangerous misses · end-to-end recovery restored 4/4 · source &amp; THEORY.md in the repository</div>
+  </main>
+  <p class="caption">A live, interactive demo of a real recovery loop — not a screenshot.</p>
+</body>
+</html>

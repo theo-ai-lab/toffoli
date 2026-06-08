@@ -1,0 +1,27 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`golden restitution receipt (end-to-end, deterministic-only) > renders the canonical run with the expected outcome 1`] = `
+"  ============================================================================
+                          TOFFOLI — RESTITUTION RECEIPT
+                          the undo layer for AI agents
+  ────────────────────────────────────────────────────────────────────────────
+      action                              class            restitution
+  ············································································
+  ·  a1  read order counts                 no effect        —
+  ‹  a2  created /backups/orders.bak       RESTORED         delete (exact)
+  ‹  a3  soft-deleted test orders          RESTORED         restore (exact)
+  ~  a4  charged the enrichment API $12    COMPENSATED      refund (semantic)
+  !  a5  dropped table orders_archive      REQUIRES HUMAN   escalated ↑
+  !  a6  emailed the summary to client@a…  REQUIRES HUMAN   escalated ↑
+  ────────────────────────────────────────────────────────────────────────────
+  SUMMARY   6 actions  ·  1 no-effect  ·  2 restored  ·  1 compensated  ·  2 escalated
+  PIVOT     a5 — point of no return (everything after is retriable, not undoable)
+  VERDICT   a human must decide on the irreversible remainder
+  ············································································
+  REQUIRES HUMAN
+    [high] a6 (emailed the summary to client@acme.com): Decide whether to send a correction/retraction to the recipient.
+           why: a message delivered to an external party cannot be un-sent; only a follow-up correction is possible
+    [critical] a5 (dropped table orders_archive): Decide whether to rebuild the destroyed data from an external source; no independent copy remains.
+           why: TRUNCATE/DROP with no recoverable copy destroys the structure and its rows
+  ============================================================================"
+`;

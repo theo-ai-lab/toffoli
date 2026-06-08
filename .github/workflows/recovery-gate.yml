@@ -1,0 +1,48 @@
+name: recovery-gate
+
+# Runs the engine tests + the recovery-soundness gate on every push/PR. The gate fails the build if
+# a catastrophic misclassification appears, IRREVERSIBLE recall drops below the floor, or the executor
+# stops restoring the recoverable subset — i.e. it treats recovery soundness as a release blocker.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      # Pin npm so the .npmrc cooldown (min-release-age) and engine-strict are actually enforced
+      # (engines.npm alone only warns; CI must pin the toolchain).
+      - run: npm i -g npm@latest
+      # Reproducible, no lifecycle scripts from dependencies (supply-chain blast-radius control).
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run eval
+      - name: recovery-soundness gate
+        run: npm run gate
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm i -g npm@latest
+      - run: npm ci --ignore-scripts
+      # Fail the build on a high-severity advisory in the dependency tree.
+      - name: audit (high+)
+        run: npm audit --audit-level=high
+      # Verify registry signatures for installed packages (provenance is not enforced at install time;
+      # this checks the npm registry signature, the available integrity guarantee in 2026).
+      - name: audit signatures
+        run: npm audit signatures

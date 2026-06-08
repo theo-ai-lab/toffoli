@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+
+# secrets
+.env
+.env.local
+
+# build / cache
+dist/
+*.tsbuildinfo
+.DS_Store
+logs/
+
+# local-only
+.private/
+
+# local-only captured runs; never committed (see dataset/PROVENANCE.md)
+dataset/captured.jsonl
+dataset/*.captured.jsonl
+
+# generated telemetry
+traces/

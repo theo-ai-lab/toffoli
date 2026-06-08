@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Toffoli — Recovery Explorer</title>
+<link rel="stylesheet" href="fonts.css" />
+<style>
+  :root{
+    --desk:#1A1714;--desk-2:#221C17;--paper:#F4EFE3;--paper-2:#ECE3D1;--edge:#DCD0B6;
+    --ink:#26221E;--ink-2:#5C5346;--ink-faint:#8A7E6B;
+    --null:#8A7E6B;--restored:#1E5E3A;--seam:#9A6A1E;--escalate:#8A2D2D;
+    --serif:"Spectral","Iowan Old Style",Georgia,serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box}html,body{margin:0}
+  body{background:radial-gradient(120% 100% at 50% 0%,var(--desk-2),var(--desk));min-height:100vh;
+    padding:44px 16px;font-family:var(--serif);color:var(--ink);display:flex;flex-direction:column;align-items:center;gap:16px}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .card{width:760px;max-width:100%;background:linear-gradient(180deg,var(--paper),var(--paper-2));border:1px solid var(--edge);padding:30px 34px}
+  .wordmark{font-weight:600;letter-spacing:.14em;font-variant:small-caps;font-size:13px;color:var(--ink-2)}
+  h1{font-weight:600;font-size:27px;margin:2px 0 2px;letter-spacing:-.01em}
+  .sub{font-style:italic;color:var(--ink-2);font-size:14px;margin-bottom:6px}
+  .hint{font-size:12.5px;color:var(--ink-faint);margin:6px 0 14px}
+  .rule{border:none;border-top:1px solid var(--edge);margin:16px 0}
+
+  /* timeline */
+  .timeline{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;margin:8px 0 2px}
+  .cell{border:1px solid var(--edge);background:#fff7;padding:8px 6px;min-height:78px;position:relative;cursor:pointer;transition:opacity .15s,border-color .15s}
+  .cell .n{font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
+  .cell .g{font-family:var(--mono);font-weight:600;font-size:15px}
+  .cell .lbl{font-size:11px;line-height:1.25;margin-top:2px}
+  .cell.out{opacity:.32;filter:grayscale(.4)}
+  .cell.pivot{border-color:var(--escalate)}
+  .cell.pivot::after{content:"point of no return";position:absolute;top:-16px;left:0;font-size:9px;font-variant:small-caps;letter-spacing:.06em;color:var(--escalate);white-space:nowrap}
+  .c-null .g,.c-null .lbl{color:var(--null)}
+  .c-rev .g{color:var(--restored)} .c-comp .g{color:var(--seam)} .c-irr .g{color:var(--escalate)}
+  .c-comp{border-left:3px solid var(--seam)}
+  .axis{display:flex;justify-content:space-between;font-size:10px;color:var(--ink-faint);font-variant:small-caps;letter-spacing:.08em;margin-top:4px}
+
+  /* control */
+  .control{margin:16px 0 8px}
+  .control label{font-size:12.5px;color:var(--ink-2)}
+  input[type=range]{width:100%;accent-color:var(--escalate);margin-top:6px}
+
+  /* verdict */
+  .verdict{border:1px solid var(--edge);padding:14px 16px;margin-top:6px}
+  .vline{font-size:14px}
+  .tally{display:flex;flex-wrap:wrap;gap:6px 18px;margin:8px 0;font-size:13px;color:var(--ink-2)}
+  .tally b{font-weight:600}
+  .t-rev b{color:var(--restored)} .t-comp b{color:var(--seam)} .t-irr b{color:var(--escalate)} .t-null b{color:var(--null)}
+  .stamp{display:inline-block;font-family:var(--mono);font-size:11px;padding:3px 9px;border:1.5px solid;letter-spacing:.08em;margin-top:4px}
+  .ok{color:var(--restored);border-color:var(--restored)}
+  .bad{color:var(--escalate);border-color:var(--escalate)}
+  .legend{font-size:11px;color:var(--ink-faint);margin-top:12px}
+  .legend span{margin-right:14px}
+  .caption{text-align:center;color:#C9BFAE;font-family:var(--mono);font-size:11px;max-width:760px}
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="wordmark">⊶ Toffoli</div>
+    <h1>Recovery Explorer</h1>
+    <div class="sub">drag the handle to undo the agent's run back to a point — watch the verdict flip when you cross the pivot</div>
+    <div class="hint">Each action's reversibility class is computed by the real engine and embedded here; this view only windows it. Undoing "back to action N" replays the restitution for actions&nbsp;N…8.</div>
+
+    <div id="timeline" class="timeline"></div>
+    <div class="axis"><span>earliest</span><span>latest</span></div>
+
+    <div class="control">
+      <label for="slider">Undo back to action <span class="num" id="fromLabel">1</span> — replays the restitution for that action through the end of the run.</label>
+      <input type="range" id="slider" min="1" max="8" value="1" />
+    </div>
+
+    <div class="verdict" aria-live="polite">
+      <div class="tally" id="tally"></div>
+      <div class="vline" id="verdictLine"></div>
+      <div id="stamp"></div>
+    </div>
+
+    <div class="legend">
+      <span>· no effect</span><span style="color:var(--restored)">‹ restored (exact)</span>
+      <span style="color:var(--seam)">~ compensated (semantic)</span><span style="color:var(--escalate)">! requires human (irreversible)</span>
+    </div>
+  </main>
+  <p class="caption">Cross the point of no return and "fully recoverable" flips to "a human must decide" — that is the whole product, made tangible.</p>
+
+<script>
+// Per-action classes computed by Toffoli's deterministic engine for this run (embedded, not re-derived).
+const ACTIONS = [
+  { n:1, cls:"NULLIPOTENT", g:"·", lbl:"read inventory", restitution:"nothing to undo" },
+  { n:2, cls:"REVERSIBLE",  g:"‹", lbl:"create export.csv", restitution:"delete (exact)" },
+  { n:3, cls:"REVERSIBLE",  g:"‹", lbl:"update price (prior captured)", restitution:"restore prior (exact)" },
+  { n:4, cls:"COMPENSABLE", g:"~", lbl:"charge vendor API $40", restitution:"refund (semantic)" },
+  { n:5, cls:"COMPENSABLE", g:"~", lbl:"publish price to internal CMS", restitution:"unpublish (semantic)" },
+  { n:6, cls:"IRREVERSIBLE",g:"!", lbl:"email 5k customers", restitution:"escalate ↑" },
+  { n:7, cls:"IRREVERSIBLE",g:"!", lbl:"drop staging table", restitution:"escalate ↑" },
+  { n:8, cls:"REVERSIBLE",  g:"‹", lbl:"soft-delete old logs", restitution:"restore (exact)" },
+];
+const CLS = { NULLIPOTENT:"c-null", REVERSIBLE:"c-rev", COMPENSABLE:"c-comp", IRREVERSIBLE:"c-irr" };
+const pivot = ACTIONS.find(a => a.cls === "IRREVERSIBLE").n; // earliest irreversible = point of no return
+
+const tl = document.getElementById("timeline");
+ACTIONS.forEach(a => {
+  const d = document.createElement("div");
+  d.className = `cell ${CLS[a.cls]}` + (a.n === pivot ? " pivot" : "");
+  d.dataset.n = a.n;
+  d.innerHTML = `<div class="n">a${a.n}</div><div class="g">${a.g}</div><div class="lbl">${a.lbl}</div>`;
+  d.onclick = () => { slider.value = a.n; render(); };
+  tl.appendChild(d);
+});
+
+const slider = document.getElementById("slider");
+slider.oninput = render;
+
+function render(){
+  const from = +slider.value;
+  document.getElementById("fromLabel").textContent = from;
+  const window = ACTIONS.filter(a => a.n >= from);
+
+  [...tl.children].forEach(c => c.classList.toggle("out", +c.dataset.n < from));
+
+  const count = c => window.filter(a => a.cls === c).length;
+  const nNull = count("NULLIPOTENT"), nRev = count("REVERSIBLE"), nComp = count("COMPENSABLE"), nIrr = count("IRREVERSIBLE");
+  document.getElementById("tally").innerHTML =
+    `<span class="t-null"><b>${nNull}</b> no-effect</span>`+
+    `<span class="t-rev"><b>${nRev}</b> restored</span>`+
+    `<span class="t-comp"><b>${nComp}</b> compensated</span>`+
+    `<span class="t-irr"><b>${nIrr}</b> require a human</span>`;
+
+  const fully = nIrr === 0;
+  document.getElementById("verdictLine").innerHTML = fully
+    ? `Undoing back to <span class="num">a${from}</span> is <b>fully automatic</b> — the world goes back.`
+    : `Undoing back to <span class="num">a${from}</span> <b>crosses the point of no return</b> (a${pivot}); ${nIrr} action${nIrr>1?"s":""} can only be escalated.`;
+  document.getElementById("stamp").innerHTML = fully
+    ? `<span class="stamp ok">✓ FULLY RECOVERABLE</span>`
+    : `<span class="stamp bad">! A HUMAN MUST DECIDE</span>`;
+}
+render();
+</script>
+</body>
+</html>

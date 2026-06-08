@@ -1,0 +1,35 @@
+name: pages
+
+# Publishes the interactive design artifacts (the Recovery Explorer + the Restitution Receipt) to
+# GitHub Pages. These are static HTML driving the real recovery model — a live, clickable demo.
+#
+# Runs on push to `main` once GitHub Pages is enabled (repo Settings → Pages → Source: "GitHub Actions").
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: design
+      - id: deployment
+        uses: actions/deploy-pages@v4

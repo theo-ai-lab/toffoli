@@ -1,0 +1,29 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.16/schema.json",
+  // Biome is used here as a LINTER only. The codebase keeps its own hand-tuned
+  // formatting; the formatter is intentionally disabled so `npm run lint` checks
+  // correctness, not whitespace. Run: `npm run lint`.
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": {
+    "includes": ["lib/**/*.ts", "dataset/**/*.ts", "eval/**/*.ts"]
+  },
+  "formatter": { "enabled": false },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "style": {
+        // The engine uses non-null assertions deliberately, only after an
+        // invariant or length check (e.g. `plan.steps[0]!`, `roots.pop()!`).
+        // TypeScript strict mode already guards these; the rule is pure style.
+        "noNonNullAssertion": "off"
+      },
+      "complexity": {
+        // Bracket access (`process.env["X"]`, `params["transaction"]`) is REQUIRED
+        // by this project's strict index-signature access, not a style slip — so
+        // the "prefer dot access" rule conflicts with the type-checker here.
+        "useLiteralKeys": "off"
+      }
+    }
+  }
+}

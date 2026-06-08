@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Toffoli — Restitution Receipt</title>
+<link rel="stylesheet" href="fonts.css" />
+<style>
+  :root {
+    --desk: #1A1714; --desk-2: #221C17;
+    --paper: #F4EFE3; --paper-2: #ECE3D1; --edge: #DCD0B6;
+    --ink: #26221E; --ink-2: #5C5346; --ink-faint: #8A7E6B;
+    --restored: #1E5E3A; --seam: #9A6A1E; --escalate: #8A2D2D;
+    --serif: "Spectral", "Iowan Old Style", Georgia, serif;
+    --serif-sc: "Spectral SC", "Spectral", "Iowan Old Style", Georgia, serif; /* true designed small caps, not synthesized */
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: radial-gradient(120% 100% at 50% 0%, var(--desk-2), var(--desk));
+    min-height: 100vh; padding: 48px 16px;
+    font-family: var(--serif); color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    display: flex; flex-direction: column; align-items: center; gap: 18px;
+  }
+  .num { font-family: var(--mono); font-feature-settings: "tnum" 1, "zero" 1; font-variant-numeric: tabular-nums; }
+  .receipt {
+    width: 680px; max-width: 100%; background: linear-gradient(180deg, var(--paper), var(--paper-2));
+    border: 1px solid var(--edge); padding: 34px 38px 26px;
+    box-shadow: 0 1px 0 #ffffff40 inset; /* paper sheen, not a card shadow */
+  }
+  /* header */
+  .wordmark { font-family: var(--serif-sc); font-variant: normal; font-weight: 600; letter-spacing: .14em; font-size: 13px; color: var(--ink-2); }
+  h1 { font-family: var(--serif); font-weight: 600; font-size: 30px; margin: 2px 0 0; letter-spacing: -0.01em; }
+  .sub { font-style: italic; color: var(--ink-2); font-size: 14px; margin-top: 2px; }
+  .meta { display: flex; justify-content: space-between; margin-top: 14px; font-size: 12px; color: var(--ink-faint); }
+  .meta .num { color: var(--ink-2); }
+  .task { margin: 16px 0 6px; font-size: 14px; color: var(--ink-2); }
+  .task b { font-weight: 500; color: var(--ink); font-style: italic; }
+  .rule { border: none; border-top: 1px solid var(--edge); margin: 14px 0; }
+  .colhead { display: grid; grid-template-columns: 26px 1fr 1fr; gap: 10px; font-size: 11px; letter-spacing: .12em;
+             font-family: var(--serif-sc); font-variant: normal; color: var(--ink-faint); padding-bottom: 6px; border-bottom: 1.5px solid var(--ink-2); }
+  .colhead .r { text-align: left; }
+
+  /* a ledger row: glyph | action (left) | restitution / contra (right) */
+  .row { display: grid; grid-template-columns: 26px 1fr 1fr; gap: 10px; align-items: start;
+         padding: 11px 0; border-bottom: 1px solid var(--edge); }
+  .glyph { font-family: var(--mono); font-weight: 600; font-size: 16px; line-height: 1.2; }
+  .act .id { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+  .act .what { font-size: 14px; margin-top: 1px; }
+  .act .detail { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); margin-top: 3px; }
+  .state { font-family: var(--serif-sc); font-variant: normal; letter-spacing: .06em; font-weight: 600; font-size: 12.5px; }
+  .contra { font-size: 13px; margin-top: 2px; }
+  .contra .num { font-size: 12px; color: var(--ink-2); }
+  .restoration { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: .08em; }
+
+  /* state encodings — color + glyph + word + position (survives grayscale) */
+  .s-null .glyph, .s-null .state { color: var(--ink-faint); }
+  .s-null .what, .s-null .detail { color: var(--ink-faint); }
+  .s-rev .glyph, .s-rev .state { color: var(--restored); }
+  .s-rev .act .what { text-decoration: line-through; text-decoration-color: var(--restored); text-decoration-thickness: 1px; }
+  .s-comp .glyph, .s-comp .state { color: var(--seam); }
+  .s-comp { border-left: 4px double var(--seam); padding-left: 8px; margin-left: -11px; } /* the kintsugi seam — shown, not hidden (gold double rule) */
+  .s-comp .state::after { content: ""; display: block; width: 30px; border-top: 1.5px solid var(--seam); margin-top: 4px; } /* the kintsugi join, echoed under the label */
+  .s-irr .glyph, .s-irr .state { color: var(--escalate); }
+
+  /* the pivot — point of no return */
+  .pivot { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+  .pivot .line { flex: 1; border-top: 2px solid var(--escalate); opacity: .55; }
+  .pivot .label { font-family: var(--serif-sc); font-variant: normal; letter-spacing: .1em; font-size: 11px; color: var(--escalate); }
+
+  /* summary + verdict */
+  .summary { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 14px; font-size: 12.5px; color: var(--ink-2); }
+  .summary .num { color: var(--ink); font-weight: 500; }
+  .verdict { margin-top: 10px; font-size: 14px; font-weight: 500; }
+  .verdict.bad { color: var(--escalate); }
+
+  /* escalation block — the loudest, most-framed state */
+  .escalations { margin-top: 14px; border: 1.5px solid var(--escalate); padding: 12px 14px; }
+  .escalations h2 { font-family: var(--serif-sc); font-variant: normal; font-size: 12px; letter-spacing: .12em; color: var(--escalate); margin: 0 0 8px; display:flex; justify-content: space-between; }
+  .stamp { font-family: var(--mono); font-size: 10px; border: 1.5px solid var(--escalate); color: var(--escalate);
+           padding: 2px 6px; transform: rotate(-3deg); letter-spacing: .1em; }
+  .esc { font-size: 13px; padding: 7px 0; border-top: 1px dashed #8A2D2D55; }
+  .esc:first-of-type { border-top: none; }
+  .esc .sev { font-family: var(--mono); font-size: 10px; text-transform: uppercase; color: var(--escalate); letter-spacing: .08em; }
+  .esc .why { color: var(--ink-2); font-size: 12px; margin-top: 2px; font-style: italic; }
+
+  /* methods footer */
+  .methods { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--edge); font-size: 11.5px; color: var(--ink-faint); }
+  .methods table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+  .methods th, .methods td { text-align: right; padding: 2px 6px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .methods th:first-child, .methods td:first-child { text-align: left; }
+  .methods thead th { color: var(--ink-2); border-bottom: 1px solid var(--edge); font-weight: 500; }
+  .caption { text-align: center; color: #C9BFAE; font-family: var(--mono); font-size: 11px; max-width: 680px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .receipt { animation: post .5s ease-out both; }
+    .stamp { animation: stamp .25s ease-out .45s both; }
+    @keyframes post { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
+    @keyframes stamp { from { transform: rotate(-3deg) scale(1.18); opacity: 0; } to { transform: rotate(-3deg) scale(1); opacity: 1; } }
+  }
+
+  /* ── print / PDF — clean paper export of the receipt ── */
+  @media print {
+    @page { margin: 14mm; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    html, body { background: #fff; }
+    body { padding: 0; }
+    .receipt { width: 100%; max-width: 100%; box-shadow: none; animation: none; clip-path: none; }
+    .stamp { animation: none; }
+    .caption { margin-top: 16px; }
+    .row, .pivot, .esc, .escalations, .methods, .verdict, .summary { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+  <main class="receipt" role="document" aria-label="Toffoli restitution receipt">
+    <div class="wordmark">⊶ Toffoli</div>
+    <h1>Restitution Receipt</h1>
+    <div class="sub">the undo layer for AI agents — what broke, what was undone, what needs you</div>
+    <div class="meta">
+      <span>run <span class="num">run_9f3a…c012</span> · agent <span class="num">staging-janitor</span></span>
+      <span class="num">2026-06-05</span>
+    </div>
+    <p class="task">Task: <b>“tidy up the staging database and email me a summary”</b></p>
+
+    <div class="colhead"><span></span><span>Action — what the agent did</span><span class="r">Restitution — the contra entry</span></div>
+
+    <div class="row s-null">
+      <div class="glyph">·</div>
+      <div class="act"><span class="id">a1</span><div class="what">read order counts</div><div class="detail">db.query · SELECT count(*) FROM orders</div></div>
+      <div><div class="state">no effect</div><div class="contra">nothing to undo</div></div>
+    </div>
+
+    <div class="row s-rev">
+      <div class="glyph">‹</div>
+      <div class="act"><span class="id">a2</span><div class="what">created /backups/orders.bak</div><div class="detail">fs.write · create</div></div>
+      <div><div class="state">restored</div><div class="contra">delete the created file <span class="restoration">· exact</span></div></div>
+    </div>
+
+    <div class="row s-rev">
+      <div class="glyph">‹</div>
+      <div class="act"><span class="id">a3</span><div class="what">soft-deleted test orders</div><div class="detail">db.execute · DELETE … is_test=true · recoverable</div></div>
+      <div><div class="state">restored</div><div class="contra">restore from the recoverable copy <span class="restoration">· exact</span></div></div>
+    </div>
+
+    <div class="row s-comp">
+      <div class="glyph">~</div>
+      <div class="act"><span class="id">a4</span><div class="what">charged the enrichment API <span class="num">$12.00</span></div><div class="detail">stripe.charge · pay · in refund window</div></div>
+      <div><div class="state">compensated</div><div class="contra">refund <span class="num">(12.00)</span> — net <span class="num">0.00</span> <span class="restoration">· semantic</span></div></div>
+    </div>
+
+    <div class="pivot"><span class="label">a5 — point of no return</span><span class="line"></span></div>
+
+    <div class="row s-irr">
+      <div class="glyph">!</div>
+      <div class="act"><span class="id">a5</span><div class="what">dropped table orders_archive</div><div class="detail">db.execute · DROP TABLE · no recoverable copy</div></div>
+      <div><div class="state">requires human</div><div class="contra">escalated ↑</div></div>
+    </div>
+
+    <div class="row s-irr">
+      <div class="glyph">!</div>
+      <div class="act"><span class="id">a6</span><div class="what">emailed the summary to client@acme.com</div><div class="detail">email.send · externalized</div></div>
+      <div><div class="state">requires human</div><div class="contra">escalated ↑</div></div>
+    </div>
+
+    <div class="summary">
+      <span><span class="num">6</span> actions</span><span><span class="num">1</span> no-effect</span>
+      <span><span class="num">2</span> restored</span><span><span class="num">1</span> compensated</span>
+      <span><span class="num">2</span> escalated</span>
+    </div>
+    <div class="verdict bad">! A human must decide on the irreversible remainder.</div>
+
+    <section class="escalations">
+      <h2><span>Requires Human</span><span class="stamp">REQUIRES HUMAN</span></h2>
+      <div class="esc"><span class="sev">critical</span> · a5 — Decide whether to rebuild the dropped table from an external source; no independent copy remains.<div class="why">TRUNCATE/DROP with no recoverable copy destroys the structure and its rows.</div></div>
+      <div class="esc"><span class="sev">high</span> · a6 — Decide whether to send a correction to the recipient.<div class="why">A message delivered to an external party cannot be un-sent; only a follow-up correction is possible.</div></div>
+    </section>
+
+    <div class="methods">
+      Deterministic-first, LLM-marked. Reversibility = ƒ(action × independent recovery state), never the verb alone;
+      unknown → escalate. Classifier accuracy on the labeled fixtures (not a prevalence claim):
+      <table>
+        <thead><tr><th>class</th><th>precision</th><th>recall</th><th>support</th></tr></thead>
+        <tbody>
+          <tr><td>NULLIPOTENT</td><td>1.00</td><td>1.00</td><td>5</td></tr>
+          <tr><td>REVERSIBLE</td><td>1.00</td><td>0.92</td><td>12</td></tr>
+          <tr><td>COMPENSABLE</td><td>1.00</td><td>0.75</td><td>8</td></tr>
+          <tr><td>IRREVERSIBLE</td><td>0.91</td><td>0.71</td><td>14</td></tr>
+        </tbody>
+      </table>
+      IRREVERSIBLE recall <span class="num">0.71</span> (95% CI <span class="num">0.45–0.88</span>, Wilson, n=14) · catastrophic misses <span class="num">0</span> · committed missed-escalations <span class="num">0</span> · reproduce: <span class="num">npm run eval</span>
+    </div>
+  </main>
+  <p class="caption">A restitution receipt is a correction artifact, not a success artifact — the contra column of a ledger, run backwards.</p>
+</body>
+</html>
