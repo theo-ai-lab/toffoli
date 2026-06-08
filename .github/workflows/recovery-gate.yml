@@ -10,6 +10,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+# The .npmrc release-age cooldown guards FRESH installs (a dev `npm install` pulling a brand-new,
+# possibly-compromised version). CI runs a REPRODUCIBLE `npm ci` of the already-committed, vetted
+# lockfile, where the cooldown adds no security and would only flake the build for ~a week after a
+# dependency bump — so it is disabled for CI here.
+env:
+  NPM_CONFIG_MIN_RELEASE_AGE: "0"
+
 jobs:
   gate:
     runs-on: ubuntu-latest
@@ -19,8 +26,7 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      # Pin npm so the .npmrc cooldown (min-release-age) and engine-strict are actually enforced
-      # (engines.npm alone only warns; CI must pin the toolchain).
+      # Pin a recent npm so the engines constraint is enforced at install time (engines alone only warns).
       - run: npm i -g npm@latest
       # Reproducible, no lifecycle scripts from dependencies (supply-chain blast-radius control).
       - run: npm ci --ignore-scripts

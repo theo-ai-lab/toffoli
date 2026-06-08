@@ -19,7 +19,7 @@ twice and the system returns to where it started. This project is that idea tran
 side effects: know what can be inverted, prove what cannot, and leave a receipt instead of a promise.
 
 Run `npm run demo` for the terminal receipt, or open
-[`design/restitution-receipt.html`](design/restitution-receipt.html):
+[`design/restitution-receipt.html`](https://theo-ai-lab.github.io/toffoli/restitution-receipt.html):
 
 ```
 $ npm run demo
@@ -144,7 +144,7 @@ each control is crosswalked to its primary source in [`SAFETY.md`](SAFETY.md):
   circuit breakers**, and **escalation as a durable path** — a failed compensation is a first-class
   state, never a silent drop.
 
-Interactive: open [`design/recovery-explorer.html`](design/recovery-explorer.html) and drag the
+Interactive: open [`design/recovery-explorer.html`](https://theo-ai-lab.github.io/toffoli/recovery-explorer.html) and drag the
 handle — "fully recoverable" flips to "a human must decide" the instant you cross the pivot.
 
 ## Where it sits
@@ -197,8 +197,8 @@ npm run gate        # the recovery-soundness gate CI runs (fails on a regression
 Optional: put `ANTHROPIC_API_KEY` in `.env.local` (see `.env.example`) to enable the gated judge
 on the residual. Without it, the engine is deterministic-only and the demo still runs end to end.
 
-**Live demo:** the interactive [Recovery Explorer](design/recovery-explorer.html) and the
-[Restitution Receipt](design/restitution-receipt.html) deploy to GitHub Pages on push
+**Live demo:** the interactive [Recovery Explorer](https://theo-ai-lab.github.io/toffoli/recovery-explorer.html) and the
+[Restitution Receipt](https://theo-ai-lab.github.io/toffoli/restitution-receipt.html) deploy to GitHub Pages on push
 (`.github/workflows/pages.yml`; enable Settings → Pages → Source: GitHub Actions). A separate
 [`recovery-gate`](.github/workflows/recovery-gate.yml) Action blocks any build that regresses
 recovery soundness.
