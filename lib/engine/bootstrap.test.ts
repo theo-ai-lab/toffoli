@@ -23,9 +23,9 @@ describe("at-scale generated eval + bootstrap", () => {
     const { heldOut } = split(gen, 7);
     const point = irreversibleRecall(heldOut)!;
     const ci = bootstrapRecallCI(heldOut, { resamples: 1000, seed: 99 });
-    expect(ci.n).toBeGreaterThan(20); // real statistical power, unlike n=14
+    expect(ci.n).toBeGreaterThan(20); // real statistical power, unlike the hand-labeled n=24
     expect(ci.lo).toBeLessThanOrEqual(point);
     expect(ci.hi).toBeGreaterThanOrEqual(point);
-    expect(ci.hi - ci.lo).toBeLessThan(0.5); // tighter than the hand-labeled 0.45–0.88 (≈0.43) interval
+    expect(ci.hi - ci.lo).toBeLessThan(0.5); // tighter than the hand-labeled 0.64–0.93 (≈0.29) interval
   });
 });

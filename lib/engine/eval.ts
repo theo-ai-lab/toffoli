@@ -64,5 +64,5 @@ console.log(`${bar()}\n  AT-SCALE (synthetic, controlled distribution — NOT pr
 console.log(`  generated held-out n=${heldOut.length} · IRREVERSIBLE support=${irr?.support ?? 0}`);
 console.log(`  IRREVERSIBLE recall: ${(irr?.recall ?? 0).toFixed(2)}  (bootstrap 95% CI ${ci.lo.toFixed(2)}–${ci.hi.toFixed(2)}, n=${ci.n}, ${ci.resamples} resamples)`);
 console.log(`  catastrophic misses: ${heldReport.dangerousMisses}   committed missed-escalations: ${heldReport.missedEscalations}`);
-console.log(`  ↑ the larger held-out set tightens the interval the hand-labeled n=14 set can't; the small`);
+console.log(`  ↑ the larger held-out set tightens the interval the hand-labeled n=24 set can't; the small`);
 console.log(`    set stays the harder, honest headline. Real-distribution numbers need real traces (pending).\n${bar()}\n`);

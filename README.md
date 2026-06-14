@@ -2,7 +2,7 @@
 
 ### The undo layer for AI agents.
 
-**IRREVERSIBLE-class recall 0.71** (95% CI 0.45–0.88, Wilson, n=14) · **0 catastrophic misclassifications** · deterministic-first, every model verdict marked · measured as an eval.
+**IRREVERSIBLE-class recall 0.83** (95% CI 0.64–0.93, Wilson, n=24) · **0 catastrophic misclassifications** · deterministic-first, every model verdict marked · measured as an eval.
 
 When an agent damages real state at 2 AM — deletes the wrong rows, double-charges a card,
 half-runs a migration — there is no general, developer-grade way to *put the world back*. The
@@ -55,10 +55,10 @@ rules commit — they're exact. Recall is the honest story.
 |---|---:|---:|---|
 | `NULLIPOTENT` | 1.00 | 1.00 | reads / no-ops — nothing to undo |
 | `REVERSIBLE` | 1.00 | 0.92 | exact inverse exists |
-| `COMPENSABLE` | 1.00 | 0.75 | partial — abstains on context-dependent cases, routed to the judge |
-| `IRREVERSIBLE` | 0.91 | 0.71 | **the headline** (the floor alone; abstentions scored as misses) |
+| `COMPENSABLE` | 1.00 | 0.67 | partial — abstains on context-dependent cases, routed to the judge |
+| `IRREVERSIBLE` | 0.95 | 0.83 | **the headline** (the floor alone; abstentions scored as misses) |
 
-**IRREVERSIBLE recall 0.71 (95% CI 0.45–0.88, Wilson, n=14) · catastrophic misses 0 · committed
+**IRREVERSIBLE recall 0.83 (95% CI 0.64–0.93, Wilson, n=24) · catastrophic misses 0 · committed
 missed-escalations 0.** That last pair is the point: the deterministic floor never *confidently*
 under-calls an irreversible action. The recall gap is honest abstention on the residual the judge
 handles, plus two adversarial "looks-reversible-but-isn't" traps where the deciding signal is omitted
@@ -157,8 +157,9 @@ comparison is in [`docs/RELATED_WORK.md`](docs/RELATED_WORK.md) / THEORY §8; in
   by its own stated gap, assumes a tool with no known compensation has no side effects. Toffoli is the
   inverse: it classifies reversibility up front, defaults unknown → IRREVERSIBLE, and escalates.
 - **Temporal** gives saga machinery with hand-written compensations; **LangGraph checkpointers** rewind
-  the agent's *internal* state (which doesn't un-send an email or un-charge a card); **DR vendors** do
-  bulk infra point-in-time restore. Each is a feeder or a fallback, not a per-action classifier.
+  the agent's *internal* state (which doesn't un-send an email or un-charge a card); **DR vendors** and
+  **Rubrik's *Agent Rewind*** (commercial, Aug 2025) do bulk / point-in-time snapshot rollback of data and
+  config. Each is a feeder or a fallback, not a per-action reversibility classifier.
 - The nearest classify-and-escalate system, **IBM STRATUS**
   ([arXiv:2506.02009](https://arxiv.org/abs/2506.02009)), is a *pre-act* gate, domain-locked to
   cloud/SRE, measured as task-success. Toffoli's slot: **domain-agnostic, post-hoc, ledger-consuming,
@@ -205,14 +206,14 @@ recovery soundness.
 
 ## Limitations & known failure modes
 
-- **`COMPENSABLE` recall is 0.75 / `IRREVERSIBLE` recall 0.71 (floor-only)**: the floor abstains
+- **`COMPENSABLE` recall is 0.67 / `IRREVERSIBLE` recall 0.83 (floor-only)**: the floor abstains
   on context-dependent cases (arbitrary `execute`, an unrecognized tool, an `update` with no
   before-image, a payment/publish with the deciding signal omitted) and routes them to the judge /
   fail-safe. Abstention is scored as a miss here, not hidden. The gold set includes adversarial
   signal-omitted traps precisely so this number isn't flattered.
 - **One disclosed over-escalation** (a regenerable cache delete called IRREVERSIBLE) — a
   safe-direction error that dents IRREVERSIBLE precision; surfaced, not swept.
-- **The gold set is small** (39 labeled actions), so the per-class numbers carry real standard
+- **The gold set is small** (51 labeled actions: 33 synthetic + 18 documented incidents), so the per-class numbers carry real standard
   error — hence the Wilson CIs (a Wald/CLT interval understates uncertainty at this n; Bowyer et al.,
   [arXiv:2503.01747](https://arxiv.org/abs/2503.01747)). The production bar is 200–500 labeled actions
   with 2–3 annotators.

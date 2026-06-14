@@ -70,5 +70,5 @@ work (see above); the *composition* is the contribution.
 - **Soundness is checked, not proven.** "No-under-call" is verified by property-based testing
   (non-vacuously — over-calling and abstention are witnessed); a fully mechanized proof (Lean/Coq) and a
   small-scope model check (TLA⁺/Alloy) are named remainders in `THEORY.md §4`.
-- **Accuracy is on fixtures, not prevalence.** Numbers are on synthetic + 6 documented incidents; a
+- **Accuracy is on fixtures, not prevalence.** Numbers are on synthetic + 18 documented incidents; a
   real-world rate needs real commissioned runs and is gated behind the provenance firewall (pending).
