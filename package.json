@@ -30,7 +30,13 @@
     "recover": "tsx lib/exec/recover.ts",
     "recover:fs": "tsx lib/exec/fs-recover.ts",
     "safe": "tsx lib/runtime/demo.ts",
+    "oracle:demo": "tsx lib/runtime/oracle-demo.ts",
+    "search": "tsx lib/agent/counterexample-demo.ts",
     "trace": "tsx lib/trace/demo.ts",
+    "agent": "tsx lib/agent/index.ts",
+    "agent:demo": "tsx lib/agent/index.ts",
+    "mcp": "tsx lib/mcp/server.ts",
+    "sql-recover": "NODE_NO_WARNINGS=1 tsx lib/exec/sql-world.ts",
     "gate": "tsx lib/gate.ts"
   },
   "dependencies": {
