@@ -31,6 +31,8 @@
     "recover:fs": "tsx lib/exec/fs-recover.ts",
     "safe": "tsx lib/runtime/demo.ts",
     "trace": "tsx lib/trace/demo.ts",
+    "proof:check": "cd formal && lake build",
+    "proof:diff": "tsx formal/diff_check.ts",
     "gate": "tsx lib/gate.ts"
   },
   "dependencies": {

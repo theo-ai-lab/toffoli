@@ -32,6 +32,13 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm test
       - run: npm run eval
+      # Install elan + Lean so the proof-gate's `lake build` / `lake exe export_table` resolve.
+      # `--default-toolchain stable` bootstraps elan; the first `lake build` fetches the toolchain
+      # pinned by formal/lean-toolchain. The bin dir is added to PATH for the gate step.
+      - name: install elan + Lean
+        run: |
+          curl -fsSL https://elan.lean-lang.org/elan-init.sh | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
       - name: recovery-soundness gate
         run: npm run gate
 
