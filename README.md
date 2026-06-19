@@ -180,6 +180,27 @@ each control is crosswalked to its primary source in [`SAFETY.md`](SAFETY.md):
 Interactive: open [`design/recovery-explorer.html`](https://theo-ai-lab.github.io/toffoli/recovery-explorer.html) and drag the
 handle — "fully recoverable" flips to "a human must decide" the instant you cross the pivot.
 
+**Reversibility-gated speculative execution** ([`lib/runtime/speculative-gate.ts`](lib/runtime/speculative-gate.ts),
+`npm run speculate`) turns the floor into a *speedup*. For an action the deterministic classifier rates
+REVERSIBLE or COMPENSABLE, Toffoli fires it **optimistically** in parallel with the slow
+permission-oracle/policy check, **commits** on agreement, and on rejection **rolls it back through the
+same restitution path** — verified back to the pre-fire baseline. The IRREVERSIBLE class and any
+abstention are **provably never speculated** (fail-closed, unchanged), and the kill-switch still fires
+nothing. This is the *Speculative Actions* lossless framework
+([arXiv:2510.04371](https://arxiv.org/abs/2510.04371)) and Sherlock's speculate-then-verify
+([arXiv:2511.00330](https://arxiv.org/abs/2511.00330)) with the safety envelope made *provable* rather
+than heuristic: the only effects ever fired on a guess are exactly those a restitution can undo.
+
+It is a deterministic-vs-deterministic cascade, so the measurement costs **zero model spend**. Measured
+over a fixed 12-action scenario (a synthetic fixture spanning every class — not a prevalence claim):
+**the deterministic fast path resolves 75% of actions losslessly, leaving the policy/oracle tier
+load-bearing for only 25% (at 8.3% classifier-vs-authority disagreement), with 0 lossless violations and
+0 irreversible actions ever fired on a guess** — cascade boundary `reversibility-classifier →
+permission-oracle/policy`, regime *model-free/provable* (no model is consulted), residual locus
+*per-action*. Whether speculation *pays off* is calibrated, never a magic constant: a break-even
+acceptance rate is derived from the operator's cost model, and a class is speculated only when its
+one-sided Wilson lower bound (Bonferroni-corrected across classes, conservative at small n) clears it.
+
 ## Where it sits
 
 Toffoli **decides reversibility, emits the diff, and escalates the rest** — a composition no single
@@ -226,6 +247,7 @@ npm run demo        # a restitution receipt in your terminal
 npm run recover     # end-to-end: damage sandboxed state → plan → undo → verify vs baseline
 npm run recover:fs  # the same loop on the REAL filesystem (FsWorld adapter) → verify vs baseline on disk
 npm run safe        # the unattended-deploy safety path: plan-only default · kill-switch · confirm-token execute
+npm run speculate   # reversibility-gated speculative execution: speculate-commit-or-rollback · curve · zero model spend
 npm run trace       # the recovery loop as OpenTelemetry spans (ship to LangSmith/AgentOps)
 npm run gate        # the recovery-soundness gate CI runs (fails on a regression)
 ```
