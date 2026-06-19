@@ -32,6 +32,7 @@
     "safe": "tsx lib/runtime/demo.ts",
     "oracle:demo": "tsx lib/runtime/oracle-demo.ts",
     "speculate": "tsx lib/runtime/speculative-demo.ts",
+    "plan": "tsx lib/runtime/horizon-demo.ts",
     "search": "tsx lib/agent/counterexample-demo.ts",
     "trace": "tsx lib/trace/demo.ts",
     "agent": "tsx lib/agent/index.ts",
