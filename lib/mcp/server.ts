@@ -579,12 +579,28 @@ export async function createSdkServer(overrides: Partial<ToffoliMcpDeps> = {}): 
 
 // ── entrypoint: prefer the SDK transport when present, else hand-rolled stdio ────
 
+/**
+ * Resolve the recovery world for the entrypoint. By default the server runs on the in-memory
+ * sandbox `World`. Set `TOFFOLI_MCP_FS_ROOT=<dir>` to back it with the real-filesystem `FsWorld`
+ * rooted there — this is the documented "inject a real adapter" seam, wired to the CLI so a host
+ * (lib/mcp/host.ts) can share a live backend with the server across processes. Imported lazily so
+ * the default (in-memory) path never loads the disk adapter.
+ */
+async function resolveEntrypointDeps(): Promise<Partial<ToffoliMcpDeps>> {
+  const fsRoot = process.env["TOFFOLI_MCP_FS_ROOT"];
+  if (!fsRoot) return {};
+  const { FsWorld } = await import("../exec/fs-world");
+  process.stderr.write(`[${SERVER_NAME}] recovery world backed by FsWorld at ${fsRoot}\n`);
+  return { world: new FsWorld(fsRoot) };
+}
+
 async function main(): Promise<void> {
+  const overrides = await resolveEntrypointDeps();
   try {
-    await createSdkServer();
+    await createSdkServer(overrides);
     process.stderr.write(`[${SERVER_NAME}] using @modelcontextprotocol/sdk stdio transport\n`);
   } catch {
-    serveStdio();
+    serveStdio(overrides);
   }
 }
 

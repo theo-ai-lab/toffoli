@@ -36,6 +36,7 @@
     "agent": "tsx lib/agent/index.ts",
     "agent:demo": "tsx lib/agent/index.ts",
     "mcp": "tsx lib/mcp/server.ts",
+    "host": "tsx lib/mcp/host.ts",
     "sql-recover": "NODE_NO_WARNINGS=1 tsx lib/exec/sql-world.ts",
     "gate": "tsx lib/gate.ts"
   },
