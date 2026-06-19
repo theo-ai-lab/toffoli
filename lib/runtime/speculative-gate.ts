@@ -478,9 +478,14 @@ export function cascadeTelemetry(outcomes: SpeculativeOutcome[]): CascadeTelemet
 /** A one-line, recruiter-legible rendering of a telemetry slice (percentages rounded to 1 dp). */
 export function renderTelemetrySentence(t: CascadeTelemetry): string {
   const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+  // Don't over-credit the authoritative tier: state the (1-alpha) remainder as what it
+  // unambiguously is — escalations to the authoritative tier (the cheap floor never
+  // speculates these, every irreversible action included). The README breaks that
+  // remainder down further (genuinely-load-bearing vs fail-closed deferral); this
+  // one-liner stays at the level the generic telemetry can assert without mis-attributing.
   return (
     `the deterministic fast path resolves ${pct(t.alpha)} of actions losslessly (speculate-and-commit or read-only); ` +
-    `the policy/oracle tier is load-bearing for only ${pct(1 - t.alpha)}, at ${pct(t.disagreementRate)} measured disagreement, ` +
-    `with ${t.losslessViolations} lossless violations (n=${t.n}, regime=${t.regime}, locus=${t.locus})`
+    `the remaining ${pct(1 - t.alpha)} escalate to the authoritative policy/oracle tier (the cheap floor never speculates these — every irreversible action included), ` +
+    `at ${pct(t.disagreementRate)} measured disagreement, with ${t.losslessViolations} lossless violations (n=${t.n}, regime=${t.regime}, locus=${t.locus})`
   );
 }
