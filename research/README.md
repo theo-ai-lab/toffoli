@@ -8,8 +8,8 @@ live in the top-level [`README.md`](../README.md); this is the map for the forma
 
 - [`THEORY.md`](../THEORY.md) — the formal model: actions as state-transformers, the four
   reversibility classes as predicates, the *no-under-call* soundness property, attestation
-  (§7–§8), and the related-work positioning (§8). (Referenced by the `feat/lean-soundness-proof`
-  branch — §4.3 in particular; do not move or rename this file.)
+  (§7–§8), and the related-work positioning (§8). The mechanized Lean soundness proof builds on
+  §4.3 in particular.
 - [`SPEC.md`](../SPEC.md) — the engine + runtime spec and the disclosed research-gated remainder.
 - [`dataset/TAXONOMY.md`](../dataset/TAXONOMY.md) — the four-class taxonomy and the decision rules,
   with their prior-art provenance (saga taxonomy, compensating transactions, the HTTP/idempotency
