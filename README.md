@@ -1,8 +1,11 @@
 # Toffoli
 
-### The undo layer for AI agents.
+### A self-healing AI agent with a built-in undo layer.
 
-**IRREVERSIBLE-class recall 0.83** (95% CI 0.64–0.93, Wilson, n=24) · **0 catastrophic misclassifications** · deterministic-first, every model verdict marked · measured as an eval.
+**Toffoli does a real job by calling tools — and when a tool call damages live state, it
+automatically puts back what can be put back and escalates only what truly can't, to a named
+human.** The undo layer for AI agents, shipped two ways: a self-healing agent loop, and an MCP
+server any agent host can call.
 
 When an agent damages real state at 2 AM — deletes the wrong rows, double-charges a card,
 half-runs a migration — there is no general, developer-grade way to *put the world back*. The
@@ -18,7 +21,28 @@ The name is literal: a Toffoli gate is a reversible logic gate that is its own i
 twice and the system returns to where it started. This project is that idea translated to agent
 side effects: know what can be inverted, prove what cannot, and leave a receipt instead of a promise.
 
-Run `npm run demo` for the terminal receipt, or open
+## The self-healing agent
+
+Run the loop end to end on sandboxed state: a tool-using agent attempts a reconcile-rows task, takes
+an injected fault (an over-broad bulk delete plus an irreversible send), and Toffoli AUTONOMOUSLY
+recovers — it classifies the genuine run, plans the resumable restitution, restores the recoverable
+subset to the pre-damage baseline, and escalates ONLY the irreversible remainder to a human. The
+agent, told it was recovered, self-corrects and finishes. The headline is task-success via genuine
+recovery, not a wall of logs.
+
+```bash
+npm run agent   # the self-healing loop: fault → auto-recover → self-correct → finish (offline by default)
+npm run host    # an MCP host: a real client drives the checkpoint/classify/recover server over stdio
+```
+
+`npm run agent` drives a deterministic scripted model, so the whole loop runs with no API key;
+`claudeAgentModel()` is a drop-in live driver when `ANTHROPIC_API_KEY` is set. `npm run host` spawns
+the MCP server (`lib/mcp/server.ts`) as a child process and drives it over stdio with the recovery
+world backed by a real on-disk adapter shared between host and server — so the recovery genuinely
+restores rows on disk and escalates the irreversible email. `TOFFOLI_EXECUTE_DISABLED=1 npm run host`
+forces the server to plan-only and the host reports that honestly (no fabricated recovery).
+
+Run `npm run demo` for the per-action terminal receipt of a single run, or open
 [`design/restitution-receipt.html`](https://theo-ai-lab.github.io/toffoli/restitution-receipt.html):
 
 ```
@@ -32,9 +56,35 @@ $ npm run demo
   PIVOT     a5 — point of no return (everything after is retriable, not undoable)
 ```
 
+## How it works
+
+- **Deterministic-first, LLM-marked.** Plain typed TypeScript rules (`lib/engine/classify.ts`,
+  zero dependencies) decide the mechanical cases — HTTP verb semantics (RFC 9110), SQL DML/DDL
+  and transaction state, external dispatch, settled payments, hard deletes. Only the
+  context-dependent residual falls through to a gated judge, and every judge verdict is badged
+  `llmAssisted` so a model never silently authorizes an undo.
+- **Every classification cites its rule.** A `Classification` can't exist without a `ruleRef` and
+  a `rationale`. An uncited verdict isn't representable.
+- **Idempotency is orthogonal.** A payment-capture with an idempotency key is idempotent *and*
+  irreversible — so idempotency is tracked as a separate signal (used to make the *compensation*
+  re-runnable), never to downgrade a class.
+- **The judge is fenced and gated.** It runs only with `ANTHROPIC_API_KEY`; the agent-authored
+  action text is passed as untrusted, injection-fenced data; the call is bounded (small token cap,
+  one retry, timeout). It's a measurement instrument — calibrate it (`npm run calibrate`, Cohen's
+  κ) before trusting it.
+- **The provenance firewall.** Synthetic fixtures, documented incidents, and real captures are
+  three separate classes; synthetic can never reach a reported number. See
+  [`dataset/PROVENANCE.md`](dataset/PROVENANCE.md).
+
 ---
 
-## The one idea
+## Formal guarantees & systems depth
+
+Everything below is the rigor under the self-healing agent above — the one idea, the measured
+result, the formal model, and the systems work. A reading index lives in
+[`research/README.md`](research/README.md).
+
+### The one idea
 
 "Can this action be undone?" is a labeled classification with ground truth — so the engine *is* an
 eval, and it's measured like one: deterministic rules first, the LLM judge only on the residual
@@ -46,7 +96,10 @@ irreversible action recoverable is the only unrecoverable error — it promises 
 destroys more state. So **recall on the IRREVERSIBLE class is the headline**, paired with its precision
 so it can't be gamed by escalating everything.
 
-## The measured result
+### The measured result
+
+**IRREVERSIBLE-class recall 0.83** (95% CI 0.64–0.93, Wilson, n=24) · **0 catastrophic
+misclassifications** · deterministic-first, every model verdict marked · measured as an eval.
 
 The deterministic floor, scored per-class against the labeled gold set. Precision is high where the
 rules commit — they're exact. Recall is the honest story.
@@ -76,27 +129,7 @@ npm run recover   # the end-to-end executor: undo on sandboxed state, verified v
 npm run demo      # a sample agent run → a restitution receipt
 ```
 
-## How it works
-
-- **Deterministic-first, LLM-marked.** Plain typed TypeScript rules (`lib/engine/classify.ts`,
-  zero dependencies) decide the mechanical cases — HTTP verb semantics (RFC 9110), SQL DML/DDL
-  and transaction state, external dispatch, settled payments, hard deletes. Only the
-  context-dependent residual falls through to a gated judge, and every judge verdict is badged
-  `llmAssisted` so a model never silently authorizes an undo.
-- **Every classification cites its rule.** A `Classification` can't exist without a `ruleRef` and
-  a `rationale`. An uncited verdict isn't representable.
-- **Idempotency is orthogonal.** A payment-capture with an idempotency key is idempotent *and*
-  irreversible — so idempotency is tracked as a separate signal (used to make the *compensation*
-  re-runnable), never to downgrade a class.
-- **The judge is fenced and gated.** It runs only with `ANTHROPIC_API_KEY`; the agent-authored
-  action text is passed as untrusted, injection-fenced data; the call is bounded (small token cap,
-  one retry, timeout). It's a measurement instrument — calibrate it (`npm run calibrate`, Cohen's
-  κ) before trusting it.
-- **The provenance firewall.** Synthetic fixtures, documented incidents, and real captures are
-  three separate classes; synthetic can never reach a reported number. See
-  [`dataset/PROVENANCE.md`](dataset/PROVENANCE.md).
-
-## Formal guarantees & systems depth
+### Formal model, attestation & systems work
 
 Built to a research bar, not only an applied one. Full detail lives in [`THEORY.md`](THEORY.md) and
 [`docs/RELATED_WORK.md`](docs/RELATED_WORK.md); the load-bearing pieces:
@@ -186,6 +219,8 @@ release-age cooldown in `.npmrc`; older npm ignores it with a harmless warning).
 ```bash
 npm install
 npm test            # the full suite (engine + property-based soundness over 600+ cases)
+npm run agent       # the self-healing agent loop: fault → auto-recover → self-correct → finish
+npm run host        # an MCP host driving the checkpoint/classify/recover server over stdio
 npm run eval        # the measured table + at-scale bootstrap CI
 npm run demo        # a restitution receipt in your terminal
 npm run recover     # end-to-end: damage sandboxed state → plan → undo → verify vs baseline
