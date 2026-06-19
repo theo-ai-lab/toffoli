@@ -21,11 +21,13 @@ import {
   cascadeTelemetry,
   defaultPermissionCheck,
   spendCapPolicy,
+  composePolicies,
   ALLOW_ALL_POLICY,
   SPECULATIVE_REGIME,
   SPECULATIVE_LOCUS,
   type PermissionCheck,
   type SpeculativeOp,
+  type SpeculativePermissionPolicy,
 } from "./speculative-gate";
 import { calibrateSpeculation, normalQuantile, speculationCurve, type AcceptanceObservation } from "./speculative-calibrate";
 import { buildSpeculativeScenario, scenarioPolicy } from "./speculative-scenario";
@@ -289,5 +291,60 @@ describe("default permission check composes the oracle and the orthogonal policy
     const v = await check(irreversibleSend);
     expect(v.permit).toBe(false);
     expect(v.source).toBe("oracle");
+  });
+});
+
+describe("composePolicies — AND over orthogonal policies (first reject wins and names itself)", () => {
+  // A second concrete policy on a dimension the reversibility floor (and the spend cap) can't see:
+  // the recipient. This is exactly the kind of orthogonal constraint the compose helper exists to AND in.
+  const recipientAllowlist = (allowed: string[]): SpeculativePermissionPolicy => ({
+    permits: (action) => {
+      const to = String(action.target?.id);
+      return allowed.includes(to)
+        ? { permit: true, reason: `recipient '${to}' on the allowlist` }
+        : { permit: false, reason: `recipient '${to}' not on the allowlist` };
+    },
+  });
+
+  it("permits only when EVERY composed policy permits", () => {
+    // $500 ≤ $1000 cap AND recipient 'vendor' allowed → both legs permit.
+    const policy = composePolicies(spendCapPolicy(1000), recipientAllowlist(["vendor"]));
+    const v = policy.permits(compensableCharge);
+    expect(v.permit).toBe(true);
+    expect(v.reason).toBe("all policies permit");
+  });
+
+  it("the FIRST rejecting policy wins and names itself", () => {
+    // Both legs would reject; the spend cap is listed first, so its reason is the one surfaced.
+    const capFirst = composePolicies(spendCapPolicy(100), recipientAllowlist(["someone-else"]));
+    const v1 = capFirst.permits(compensableCharge);
+    expect(v1.permit).toBe(false);
+    expect(v1.reason).toContain("spend cap");
+    expect(v1.reason).not.toContain("allowlist"); // short-circuited before the second leg
+
+    // Reorder so the cap permits ($500 ≤ $1000): now the allowlist is the first (and only) rejecter.
+    const allowlistDecides = composePolicies(spendCapPolicy(1000), recipientAllowlist(["someone-else"]));
+    const v2 = allowlistDecides.permits(compensableCharge);
+    expect(v2.permit).toBe(false);
+    expect(v2.reason).toContain("not on the allowlist");
+  });
+
+  it("an empty composition permits vacuously (the AND identity), like ALLOW_ALL", () => {
+    expect(composePolicies().permits(compensableCharge).permit).toBe(true);
+    expect(composePolicies().permits(irreversibleSend).permit).toBe(true);
+  });
+
+  it("drives the authoritative tier — a composed reject surfaces as a policy-sourced rollback", async () => {
+    const world = new World();
+    const baseline = world.snapshot();
+    const op: SpeculativeOp<World> = { action: compensableCharge, fire: (w) => w.charge("vendor", 500) };
+    // Oracle PROCEEDs (compensable); the COMPOSED policy rejects on the cap → speculate-then-rollback.
+    const check = defaultPermissionCheck({ policy: composePolicies(spendCapPolicy(100), recipientAllowlist(["vendor"])), clock });
+    const r = await speculativeExecute([op], world, { permissionCheck: check, env: sandboxEnv, clock });
+    const o = r.outcomes[0]!;
+    expect(o.disposition).toBe("rolled-back");
+    expect(o.authoritative?.source).toBe("policy");
+    expect(o.rollback?.lossless).toBe(true);
+    expect(world.snapshot().ledgerUsd).toBe(baseline.ledgerUsd); // money put back
   });
 });

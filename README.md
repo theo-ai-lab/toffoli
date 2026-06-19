@@ -193,11 +193,14 @@ than heuristic: the only effects ever fired on a guess are exactly those a resti
 
 It is a deterministic-vs-deterministic cascade, so the measurement costs **zero model spend**. Measured
 over a fixed 12-action scenario (a synthetic fixture spanning every class — not a prevalence claim):
-**the deterministic fast path resolves 75% of actions losslessly, leaving the policy/oracle tier
-load-bearing for only 25% (at 8.3% classifier-vs-authority disagreement), with 0 lossless violations and
-0 irreversible actions ever fired on a guess** — cascade boundary `reversibility-classifier →
-permission-oracle/policy`, regime *model-free/provable* (no model is consulted), residual locus
-*per-action*. Whether speculation *pays off* is calibrated, never a magic constant: a break-even
+**the deterministic fast path resolves 75% of actions losslessly (speculate-and-commit or read-only).
+Of the remaining 25%, the authoritative policy/oracle tier is genuinely load-bearing for just 8.3% — the
+single over-cap charge whose optimistic guess it overrode and rolled back (exactly the
+classifier-vs-authority disagreement rate); the other 16.7% are the two IRREVERSIBLE sends the cheap
+reversibility floor itself fails closed on and escalates — never speculated regardless of the
+authoritative verdict. 0 lossless violations and 0 irreversible actions ever fired on a guess** — cascade
+boundary `reversibility-classifier → permission-oracle/policy`, regime *model-free/provable* (no model is
+consulted), residual locus *per-action*. Whether speculation *pays off* is calibrated, never a magic constant: a break-even
 acceptance rate is derived from the operator's cost model, and a class is speculated only when its
 one-sided Wilson lower bound (Bonferroni-corrected across classes, conservative at small n) clears it.
 
