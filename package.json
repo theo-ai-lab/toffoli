@@ -40,6 +40,8 @@
     "mcp": "tsx lib/mcp/server.ts",
     "host": "tsx lib/mcp/host.ts",
     "sql-recover": "NODE_NO_WARNINGS=1 tsx lib/exec/sql-world.ts",
+    "proof:check": "cd formal && lake build",
+    "proof:diff": "tsx formal/diff_check.ts",
     "gate": "tsx lib/gate.ts"
   },
   "dependencies": {

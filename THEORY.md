@@ -113,8 +113,21 @@ A *verification pyramid*, with each tier's strength stated plainly:
    CHARME 1999; Lamport, *Specifying Systems*, 2002). Structural DAG questions ("does any ≤N-action graph
    admit a plan running a compensation before its prerequisite?") suit **Alloy** `check` within scope
    (Jackson, *Software Abstractions*).
-3. **Mechanized proof — the research-gated remainder.** A Coq/Lean proof over the operational model is
-   future work, disclosed as such, not implied.
+3. **Mechanized proof — DONE for the operational model.** A **Lean 4 proof** (Lean core only, no
+   Mathlib) of the §3 soundness inequality `∀a. C⁺(a) ⪰ c*(a)` and the catastrophic-safety corollary
+   now exists in [`formal/`](./formal/) — no `sorry`, `#print axioms` shows only the standard kernel
+   axioms. It is honestly scoped: it proves the property for the classifier's **operational model at the
+   resolved-op level** (op-resolution — the tool-name/HTTP/SQL-verb regexes — is assumed correct, not
+   modeled), **relative to honest metadata** per §7 (the `observe` map genuinely allows a safe-direction
+   signal to be *absent* even when the truth is safe, so the `⪰` is the real asymmetric inequality —
+   strict over-calls and exact matches are both machine-checked as non-vacuity witnesses, not a
+   `trueClass = classifyPlus ∘ observe` tautology). Faithfulness of the model to the actual TypeScript
+   bytes of `classifyDeterministic` is pinned *separately and exhaustively* by `formal/diff_check.ts`
+   (every one of the 3168 points of the finite signal space agrees, with abstain↦⊤), and `npm run gate`
+   fails if either the kernel check or the differential check regresses. This **discharges this tier for
+   the MODEL**; it does **not** claim a mechanized `concrete ⊑ γ(abstract)` over the running bytes (there
+   is still no formal `γ` in the code — the bytes are tied in only through the differential check), so the
+   analysis-soundness framing of §3 is unchanged. See [`formal/README.md`](./formal/README.md).
 
 ---
 

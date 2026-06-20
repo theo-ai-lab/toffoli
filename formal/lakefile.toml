@@ -1,0 +1,12 @@
+name = "toffoli_formal"
+defaultTargets = ["ToffoliFormal", "export_table"]
+
+# Lean core only — no Mathlib. A 4-element decidable linear order needs no
+# external dependency, and Mathlib would be a multi-hundred-megabyte download.
+
+[[lean_lib]]
+name = "ToffoliFormal"
+
+[[lean_exe]]
+name = "export_table"
+root = "Main"

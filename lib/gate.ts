@@ -11,6 +11,10 @@
  * Exits non-zero on any failure. Threshold overridable via TOFFOLI_MIN_RECALL.
  */
 
+import { execSync } from "node:child_process";
+import * as os from "node:os";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadGoldSet } from "../dataset/schema";
 import { evaluate } from "./engine/metrics";
 import { recoveryScenario, buildRecoveryCase } from "./exec/recover";
@@ -44,6 +48,44 @@ const token = computeConfirmToken(execCase.plan);
 const safe = safeExecute(execCase.plan, execCase.world, { env: {} as NodeJS.ProcessEnv, confirmToken: token, policy: SANDBOX_AUTO_POLICY });
 const safeParity = safe.restored === execCase.plan.steps.length;
 
+// ── mechanized-proof gate (additive) ──────────────────────────────────────────
+// The Lean soundness model (formal/) must kernel-check, AND must remain a faithful
+// abstraction of the real classifier (formal/diff_check.ts pins classifyPlus to
+// classifyDeterministic over the full Signals space). Both run as `proof:check`
+// equivalents here so a regression in either blocks the build. `elan` is added to
+// PATH; the running node binary's dir is added so the diff sub-process can spawn tsx.
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const formalDir = resolve(repoRoot, "formal");
+const proofEnv: NodeJS.ProcessEnv = {
+  ...process.env,
+  PATH: `${os.homedir()}/.elan/bin:${dirname(process.execPath)}:${process.env["PATH"] ?? ""}`,
+};
+
+let proofKernelOk = false;
+let proofKernelDetail = "";
+try {
+  execSync("lake build", { cwd: formalDir, env: proofEnv, stdio: "pipe" });
+  proofKernelOk = true;
+  proofKernelDetail = "lake build (formal/) — soundness + corollary kernel-check, no sorry";
+} catch (e) {
+  proofKernelDetail = `lake build failed: ${String((e as Error).message).split("\n")[0]}`;
+}
+
+let proofFaithfulOk = false;
+let proofFaithfulDetail = "";
+try {
+  execSync("node_modules/.bin/tsx formal/diff_check.ts", {
+    cwd: repoRoot,
+    env: proofEnv,
+    stdio: "pipe",
+  });
+  proofFaithfulOk = true;
+  proofFaithfulDetail = "classifyDeterministic (abstain↦⊤) == verified classifyPlus on all signals";
+} catch (e) {
+  proofFaithfulOk = false;
+  proofFaithfulDetail = `diff_check failed: ${String((e as Error).message).split("\n")[0]}`;
+}
+
 const checks = [
   { name: "no catastrophic misclassifications (irreversible called auto-undoable)", pass: report.dangerousMisses === 0, detail: `dangerousMisses=${report.dangerousMisses}` },
   { name: "no committed missed-escalations", pass: report.missedEscalations === 0, detail: `missedEscalations=${report.missedEscalations}` },
@@ -55,6 +97,8 @@ const checks = [
   { name: "plan-only by default mutates nothing", pass: planOnlyInert, detail: "no token, no autoConfirm → zero mutation" },
   { name: "safe path restores parity with the bare executor", pass: safeParity, detail: `restored=${safe.restored}/${execCase.plan.steps.length}` },
   { name: "anti-fabrication: every reported restoration is journal-confirmed", pass: safe.fabricationCheck.pass, detail: safe.fabricationCheck.detail },
+  { name: "Lean soundness proof kernel-checks (no under-call + catastrophic safety)", pass: proofKernelOk, detail: proofKernelDetail },
+  { name: "Lean model is faithful to the TS classifier bytes (diff_check)", pass: proofFaithfulOk, detail: proofFaithfulDetail },
 ];
 
 console.log(`\n  TOFFOLI — recovery-soundness gate\n  ${"─".repeat(62)}`);
