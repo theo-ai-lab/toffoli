@@ -68,17 +68,17 @@ async function main(): Promise<void> {
   console.log(`    reached goal: ${epA.reachedGoal} in ${epA.steps} safe step(s); irreversible actions executed: ${epA.irreversibleExecuted} (MUST be 0); total blast/irreversibility cost: ${epA.totalCost}`);
   console.log(`    outbox after run: ${a.world.snapshot().outbox.length}  ·  table dropped: ${!a.world.snapshot().tables.includes("orders")}  (the irreversible shortcut was never taken)`);
 
-  // ── 4 · episode restitution through the existing safeExecute ──
-  const restitution = restituteEpisode(epA.executedActions, a.world, { env: sandboxEnv, clock });
-  const backToBaseline = recoverableMatches(a.world.snapshot(), baselineA);
-  console.log(`    EPISODE RESTITUTION via safeExecute: restored ${restitution.restored} step(s); fabrication-check ${restitution.fabricationCheck.pass ? "PASS" : "FAIL"}; back to pre-episode baseline: ${backToBaseline}`);
-
   // ── 3 · re-plan adapts to an unmodeled disturbance ──
   console.log("\n  ── EPISODE B — an unmodeled disturbance (a late stale row 't9' arrives after step 0) ──");
   const b = buildCloseScenario();
   const epB = await recedingHorizonControl(closeDomain, b.world, { env: sandboxEnv, clock, runId: "plan-demo-B", onAfterStep: lateArrival("t9", 0), onIteration: (it) => console.log(traceRow(it)) });
   console.log(`    reached goal: ${epB.reachedGoal} in ${epB.steps} safe step(s); divergences observed (observed ≠ predicted): ${epB.divergences}`);
   console.log(`    the controller cleaned the late 't9' it never modeled — receding horizon re-planned from the truth; an open-loop plan would have stopped one row short.`);
+
+  // ── 4 · episode restitution through the existing safeExecute ──
+  const restitution = restituteEpisode(epA.executedActions, a.world, { env: sandboxEnv, clock });
+  const backToBaseline = recoverableMatches(a.world.snapshot(), baselineA);
+  console.log(`    EPISODE RESTITUTION via safeExecute: restored ${restitution.restored} step(s); fabrication-check ${restitution.fabricationCheck.pass ? "PASS" : "FAIL"}; back to pre-episode baseline: ${backToBaseline}`);
 
   // ── kill-switch ──
   const frozen = buildCloseScenario();
