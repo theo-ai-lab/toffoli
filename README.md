@@ -1,8 +1,11 @@
 # Toffoli
 
-### The undo layer for AI agents.
+### A self-healing AI agent with a built-in undo layer.
 
-**IRREVERSIBLE-class recall 0.83** (95% CI 0.64–0.93, Wilson, n=24) · **0 catastrophic misclassifications** · deterministic-first, every model verdict marked · measured as an eval.
+**Toffoli does a real job by calling tools — and when a tool call damages live state, it
+automatically puts back what can be put back and escalates only what truly can't, to a named
+human.** The undo layer for AI agents, shipped two ways: a self-healing agent loop, and an MCP
+server any agent host can call.
 
 When an agent damages real state at 2 AM — deletes the wrong rows, double-charges a card,
 half-runs a migration — there is no general, developer-grade way to *put the world back*. The
@@ -18,7 +21,28 @@ The name is literal: a Toffoli gate is a reversible logic gate that is its own i
 twice and the system returns to where it started. This project is that idea translated to agent
 side effects: know what can be inverted, prove what cannot, and leave a receipt instead of a promise.
 
-Run `npm run demo` for the terminal receipt, or open
+## The self-healing agent
+
+Run the loop end to end on sandboxed state: a tool-using agent attempts a reconcile-rows task, takes
+an injected fault (an over-broad bulk delete plus an irreversible send), and Toffoli AUTONOMOUSLY
+recovers — it classifies the genuine run, plans the resumable restitution, restores the recoverable
+subset to the pre-damage baseline, and escalates ONLY the irreversible remainder to a human. The
+agent, told it was recovered, self-corrects and finishes. The headline is task-success via genuine
+recovery, not a wall of logs.
+
+```bash
+npm run agent   # the self-healing loop: fault → auto-recover → self-correct → finish (offline by default)
+npm run host    # an MCP host: a real client drives the checkpoint/classify/recover server over stdio
+```
+
+`npm run agent` drives a deterministic scripted model, so the whole loop runs with no API key;
+`claudeAgentModel()` is a drop-in live driver when `ANTHROPIC_API_KEY` is set. `npm run host` spawns
+the MCP server (`lib/mcp/server.ts`) as a child process and drives it over stdio with the recovery
+world backed by a real on-disk adapter shared between host and server — so the recovery genuinely
+restores rows on disk and escalates the irreversible email. `TOFFOLI_EXECUTE_DISABLED=1 npm run host`
+forces the server to plan-only and the host reports that honestly (no fabricated recovery).
+
+Run `npm run demo` for the per-action terminal receipt of a single run, or open
 [`design/restitution-receipt.html`](https://theo-ai-lab.github.io/toffoli/restitution-receipt.html):
 
 ```
@@ -32,9 +56,35 @@ $ npm run demo
   PIVOT     a5 — point of no return (everything after is retriable, not undoable)
 ```
 
+## How it works
+
+- **Deterministic-first, LLM-marked.** Plain typed TypeScript rules (`lib/engine/classify.ts`,
+  zero dependencies) decide the mechanical cases — HTTP verb semantics (RFC 9110), SQL DML/DDL
+  and transaction state, external dispatch, settled payments, hard deletes. Only the
+  context-dependent residual falls through to a gated judge, and every judge verdict is badged
+  `llmAssisted` so a model never silently authorizes an undo.
+- **Every classification cites its rule.** A `Classification` can't exist without a `ruleRef` and
+  a `rationale`. An uncited verdict isn't representable.
+- **Idempotency is orthogonal.** A payment-capture with an idempotency key is idempotent *and*
+  irreversible — so idempotency is tracked as a separate signal (used to make the *compensation*
+  re-runnable), never to downgrade a class.
+- **The judge is fenced and gated.** It runs only with `ANTHROPIC_API_KEY`; the agent-authored
+  action text is passed as untrusted, injection-fenced data; the call is bounded (small token cap,
+  one retry, timeout). It's a measurement instrument — calibrate it (`npm run calibrate`, Cohen's
+  κ) before trusting it.
+- **The provenance firewall.** Synthetic fixtures, documented incidents, and real captures are
+  three separate classes; synthetic can never reach a reported number. See
+  [`dataset/PROVENANCE.md`](dataset/PROVENANCE.md).
+
 ---
 
-## The one idea
+## Formal guarantees & systems depth
+
+Everything below is the rigor under the self-healing agent above — the one idea, the measured
+result, the formal model, and the systems work. A reading index lives in
+[`research/README.md`](research/README.md).
+
+### The one idea
 
 "Can this action be undone?" is a labeled classification with ground truth — so the engine *is* an
 eval, and it's measured like one: deterministic rules first, the LLM judge only on the residual
@@ -46,7 +96,10 @@ irreversible action recoverable is the only unrecoverable error — it promises 
 destroys more state. So **recall on the IRREVERSIBLE class is the headline**, paired with its precision
 so it can't be gamed by escalating everything.
 
-## The measured result
+### The measured result
+
+**IRREVERSIBLE-class recall 0.83** (95% CI 0.64–0.93, Wilson, n=24) · **0 catastrophic
+misclassifications** · deterministic-first, every model verdict marked · measured as an eval.
 
 The deterministic floor, scored per-class against the labeled gold set. Precision is high where the
 rules commit — they're exact. Recall is the honest story.
@@ -76,27 +129,7 @@ npm run recover   # the end-to-end executor: undo on sandboxed state, verified v
 npm run demo      # a sample agent run → a restitution receipt
 ```
 
-## How it works
-
-- **Deterministic-first, LLM-marked.** Plain typed TypeScript rules (`lib/engine/classify.ts`,
-  zero dependencies) decide the mechanical cases — HTTP verb semantics (RFC 9110), SQL DML/DDL
-  and transaction state, external dispatch, settled payments, hard deletes. Only the
-  context-dependent residual falls through to a gated judge, and every judge verdict is badged
-  `llmAssisted` so a model never silently authorizes an undo.
-- **Every classification cites its rule.** A `Classification` can't exist without a `ruleRef` and
-  a `rationale`. An uncited verdict isn't representable.
-- **Idempotency is orthogonal.** A payment-capture with an idempotency key is idempotent *and*
-  irreversible — so idempotency is tracked as a separate signal (used to make the *compensation*
-  re-runnable), never to downgrade a class.
-- **The judge is fenced and gated.** It runs only with `ANTHROPIC_API_KEY`; the agent-authored
-  action text is passed as untrusted, injection-fenced data; the call is bounded (small token cap,
-  one retry, timeout). It's a measurement instrument — calibrate it (`npm run calibrate`, Cohen's
-  κ) before trusting it.
-- **The provenance firewall.** Synthetic fixtures, documented incidents, and real captures are
-  three separate classes; synthetic can never reach a reported number. See
-  [`dataset/PROVENANCE.md`](dataset/PROVENANCE.md).
-
-## Formal guarantees & systems depth
+### Formal model, attestation & systems work
 
 Built to a research bar, not only an applied one. Full detail lives in [`THEORY.md`](THEORY.md) and
 [`docs/RELATED_WORK.md`](docs/RELATED_WORK.md); the load-bearing pieces:
@@ -147,6 +180,54 @@ each control is crosswalked to its primary source in [`SAFETY.md`](SAFETY.md):
 Interactive: open [`design/recovery-explorer.html`](https://theo-ai-lab.github.io/toffoli/recovery-explorer.html) and drag the
 handle — "fully recoverable" flips to "a human must decide" the instant you cross the pivot.
 
+**Reversibility-gated speculative execution** ([`lib/runtime/speculative-gate.ts`](lib/runtime/speculative-gate.ts),
+`npm run speculate`) turns the floor into a *speedup*. For an action the deterministic classifier rates
+REVERSIBLE or COMPENSABLE, Toffoli fires it **optimistically** in parallel with the slow
+permission-oracle/policy check, **commits** on agreement, and on rejection **rolls it back through the
+same restitution path** — verified back to the pre-fire baseline. The IRREVERSIBLE class and any
+abstention are **provably never speculated** (fail-closed, unchanged), and the kill-switch still fires
+nothing. This is the *Speculative Actions* lossless framework
+([arXiv:2510.04371](https://arxiv.org/abs/2510.04371)) and Sherlock's speculate-then-verify
+([arXiv:2511.00330](https://arxiv.org/abs/2511.00330)) with the safety envelope made *provable* rather
+than heuristic: the only effects ever fired on a guess are exactly those a restitution can undo.
+
+It is a deterministic-vs-deterministic cascade, so the measurement costs **zero model spend**. Measured
+over a fixed 12-action scenario (a synthetic fixture spanning every class — not a prevalence claim):
+**the deterministic fast path resolves 75% of actions losslessly (speculate-and-commit or read-only).
+Of the remaining 25%, the authoritative policy/oracle tier is genuinely load-bearing for just 8.3% — the
+single over-cap charge whose optimistic guess it overrode and rolled back (exactly the
+classifier-vs-authority disagreement rate); the other 16.7% are the two IRREVERSIBLE sends the cheap
+reversibility floor itself fails closed on and escalates — never speculated regardless of the
+authoritative verdict. 0 lossless violations and 0 irreversible actions ever fired on a guess** — cascade
+boundary `reversibility-classifier → permission-oracle/policy`, regime *model-free/provable* (no model is
+consulted), residual locus *per-action*. Whether speculation *pays off* is calibrated, never a magic constant: a break-even
+acceptance rate is derived from the operator's cost model, and a class is speculated only when its
+one-sided Wilson lower bound (Bonferroni-corrected across classes, conservative at small n) clears it.
+
+**Deterministic-first receding-horizon planning** ([`lib/runtime/horizon-planner.ts`](lib/runtime/horizon-planner.ts),
+`npm run plan`) takes the same floor and turns it into a *planner's safety filter* — the most forward-looking
+use of the engine. Learned-verifier-guided search (LLM tree search, process/outcome reward value functions)
+puts the expensive component on the **scoring** side: a model is evaluated at every node to estimate how good
+a partial plan is. This controller **inverts that cost curve**. It (a) *proposes* candidate action sequences
+toward a goal, (b) at **stage 1** prunes them with the deterministic reversibility classifier as an **exact,
+zero-model-spend feasibility filter** — any plan that would take an IRREVERSIBLE action, or one the floor
+*abstains* on, is dropped *before* anything is scored — (c) at **stage 2** scores the survivors with a
+**deterministic objective** (goal-progress minus an irreversibility/blast-radius cost), (d) executes exactly
+**one** step through the existing speculative gate (which itself routes a rejected fire back through
+`safeExecute`), then **re-observes and re-plans** (receding horizon). The catastrophic branch is eliminated
+*for free*, the inverse of paying a learned verifier to probabilistically notice it.
+
+It is **a demonstration harness, not a deployed planner**: the action library is small and the objective is
+hand-specified. What it shows, by really running, is narrow and verifiable — on a fixed billing-close
+scenario the stage-1 filter prunes every plan containing the one-step `DROP TABLE` shortcut *for free*, the
+deterministic objective then prefers the **reversible** local-snapshot route over the equal-progress
+**compensable** vendor charge, the controller reaches the goal in reversible steps with **0 irreversible
+actions ever executed**, it **adapts** when an unmodeled disturbance (a late-arriving row) makes the observed
+state diverge from the prediction, and the **entire executed trajectory is undone through `safeExecute` back
+to the pre-episode baseline** — the payoff of the stage-1 prune: everything it did was recoverable. Where a
+learned value function *would* plug in is the stage-2 objective seam; the default objective is deterministic
+on purpose (zero spend, fully reproducible).
+
 ## Where it sits
 
 Toffoli **decides reversibility, emits the diff, and escalates the rest** — a composition no single
@@ -186,11 +267,15 @@ release-age cooldown in `.npmrc`; older npm ignores it with a harmless warning).
 ```bash
 npm install
 npm test            # the full suite (engine + property-based soundness over 600+ cases)
+npm run agent       # the self-healing agent loop: fault → auto-recover → self-correct → finish
+npm run host        # an MCP host driving the checkpoint/classify/recover server over stdio
 npm run eval        # the measured table + at-scale bootstrap CI
 npm run demo        # a restitution receipt in your terminal
 npm run recover     # end-to-end: damage sandboxed state → plan → undo → verify vs baseline
 npm run recover:fs  # the same loop on the REAL filesystem (FsWorld adapter) → verify vs baseline on disk
 npm run safe        # the unattended-deploy safety path: plan-only default · kill-switch · confirm-token execute
+npm run speculate   # reversibility-gated speculative execution: speculate-commit-or-rollback · curve · zero model spend
+npm run plan        # deterministic-first receding-horizon planning: propose→prune(exact,free)→score→step→replan
 npm run trace       # the recovery loop as OpenTelemetry spans (ship to LangSmith/AgentOps)
 npm run gate        # the recovery-soundness gate CI runs (fails on a regression)
 ```
