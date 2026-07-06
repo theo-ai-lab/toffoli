@@ -13,7 +13,10 @@ tier‑3 "mechanized proof" remainder in §4.
 > floor never commits to a recoverable verdict for a truly irreversible action.
 
 Both are proved, with no `sorry`. `#print axioms` reports only the standard kernel axioms
-(`propext`, `Quot.sound`) — see [`Axioms.lean`](./Axioms.lean).
+(`propext`, `Quot.sound`) — and this is **build-enforced**, not just observed:
+[`Axioms.lean`](./Axioms.lean) pins the exact `#print axioms` output for every theorem and
+witness with `#guard_msgs`, and is a default `lake build` target, so a `sorry` (`sorryAx`)
+or a new axiom anywhere in the proofs fails the build — and with it `npm run gate` and CI.
 
 ## Layout
 
@@ -22,17 +25,16 @@ Both are proved, with no `sorry`. `#print axioms` reports only the standard kern
 | [`ToffoliFormal.lean`](./ToffoliFormal.lean) | The model + the theorems. `Rev` (the 4‑class lattice with rank/`⪯`), `Signals`, `classifyPlus` (the total classifier with `abstain ↦ ⊤`), `TrueEffect`/`trueClass`/`observe` (the honest ground truth), `soundness`, `catastrophic_safety`, and the non‑vacuity witnesses. |
 | [`Main.lean`](./Main.lean) | A `lake exe export_table` that prints the verified `classifyPlus` decision table over the full finite `Signals` space (3168 points) as JSON. |
 | [`diff_check.ts`](./diff_check.ts) | The model‑vs‑bytes faithfulness check: enumerates the same space, builds the real `AgentAction`, runs the **real** `classifyDeterministic` (with `null ↦ IRREVERSIBLE`), and asserts it equals the Lean class at every point. |
-| [`Axioms.lean`](./Axioms.lean) | `#print axioms` for the theorems and witnesses. |
+| [`Axioms.lean`](./Axioms.lean) | Build-enforced axiom pins: `#guard_msgs` asserts the exact `#print axioms` output for the theorems and witnesses (kernel axioms only, no `sorryAx`). Compiled by `lake build`. |
 | `lean-toolchain` / `lakefile.toml` | Pin `leanprover/lean4:v4.31.0`; declare the lib + exe. |
 
 ## Run it
 
 ```sh
-# kernel-check the proof (also what `npm run proof:check` and the gate run)
+# kernel-check the proof AND the axiom pins (also what `npm run proof:check` and
+# the gate run) — `Axioms.lean` fails this build if any theorem picks up `sorryAx`
+# or a non-kernel axiom
 cd formal && lake build
-
-# show the axiom dependencies — there must be no `sorryAx`
-cd formal && lake env lean Axioms.lean
 
 # pin the Lean model to the real TS classifier over the whole Signals space
 npm run proof:diff          # == tsx formal/diff_check.ts

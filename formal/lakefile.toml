@@ -1,11 +1,17 @@
 name = "toffoli_formal"
-defaultTargets = ["ToffoliFormal", "export_table"]
+defaultTargets = ["ToffoliFormal", "Axioms", "export_table"]
 
 # Lean core only — no Mathlib. A 4-element decidable linear order needs no
 # external dependency, and Mathlib would be a multi-hundred-megabyte download.
 
 [[lean_lib]]
 name = "ToffoliFormal"
+
+# Axioms is a build target on purpose: its `#guard_msgs` assertions pin the
+# `#print axioms` output of every theorem, so a `sorry` (sorryAx) or a new
+# axiom anywhere in the proofs fails `lake build` — and with it the gate and CI.
+[[lean_lib]]
+name = "Axioms"
 
 [[lean_exe]]
 name = "export_table"
