@@ -3,6 +3,11 @@ name: pages
 # Publishes the interactive design artifacts (the Recovery Explorer + the Restitution Receipt) to
 # GitHub Pages. These are static HTML driving the real recovery model — a live, clickable demo.
 #
+# The pages are REGENERATED FROM THE ENGINE before upload (`npm run design:build` renders the
+# `npm run demo` plan, the eval report, and the recovery harness into the marked regions), so the
+# published demo can never claim a number the engine no longer produces. The committed pages are
+# additionally locked to the engine by the no-drift test in lib/design/build.test.ts (recovery-gate).
+#
 # Runs on push to `main` once GitHub Pages is enabled (repo Settings → Pages → Source: "GitHub Actions").
 
 on:
@@ -19,6 +24,11 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+# Same rationale as recovery-gate.yml: the release-age cooldown guards fresh installs, not a
+# reproducible `npm ci` of the vetted lockfile — disabled so CI doesn't flake after a dep bump.
+env:
+  NPM_CONFIG_MIN_RELEASE_AGE: "0"
+
 jobs:
   deploy:
     environment:
@@ -27,6 +37,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm i -g npm@latest
+      - run: npm ci --ignore-scripts
+      # Render the live engine output into the demo pages — what deploys is what the engine computes.
+      - run: npm run design:build
       - uses: actions/configure-pages@v6
         with:
           enablement: true
