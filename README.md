@@ -181,52 +181,16 @@ Interactive: open [`design/recovery-explorer.html`](https://theo-ai-lab.github.i
 handle — "fully recoverable" flips to "a human must decide" the instant you cross the pivot.
 
 **Reversibility-gated speculative execution** ([`lib/runtime/speculative-gate.ts`](lib/runtime/speculative-gate.ts),
-`npm run speculate`) turns the floor into a *speedup*. For an action the deterministic classifier rates
-REVERSIBLE or COMPENSABLE, Toffoli fires it **optimistically** in parallel with the slow
-permission-oracle/policy check, **commits** on agreement, and on rejection **rolls it back through the
-same restitution path** — verified back to the pre-fire baseline. The IRREVERSIBLE class and any
-abstention are **provably never speculated** (fail-closed, unchanged), and the kill-switch still fires
-nothing. This is the *Speculative Actions* lossless framework
-([arXiv:2510.04371](https://arxiv.org/abs/2510.04371)) and Sherlock's speculate-then-verify
-([arXiv:2511.00330](https://arxiv.org/abs/2511.00330)) with the safety envelope made *provable* rather
-than heuristic: the only effects ever fired on a guess are exactly those a restitution can undo.
-
-It is a deterministic-vs-deterministic cascade, so the measurement costs **zero model spend**. Measured
-over a fixed 12-action scenario (a synthetic fixture spanning every class — not a prevalence claim):
-**the deterministic fast path resolves 75% of actions losslessly (speculate-and-commit or read-only).
-Of the remaining 25%, the authoritative policy/oracle tier is genuinely load-bearing for just 8.3% — the
-single over-cap charge whose optimistic guess it overrode and rolled back (exactly the
-classifier-vs-authority disagreement rate); the other 16.7% are the two IRREVERSIBLE sends the cheap
-reversibility floor itself fails closed on and escalates — never speculated regardless of the
-authoritative verdict. 0 lossless violations and 0 irreversible actions ever fired on a guess** — cascade
-boundary `reversibility-classifier → permission-oracle/policy`, regime *model-free/provable* (no model is
-consulted), residual locus *per-action*. Whether speculation *pays off* is calibrated, never a magic constant: a break-even
-acceptance rate is derived from the operator's cost model, and a class is speculated only when its
-one-sided Wilson lower bound (Bonferroni-corrected across classes, conservative at small n) clears it.
+`npm run speculate`) turns the floor into a *speedup*: actions the classifier rates REVERSIBLE or
+COMPENSABLE fire optimistically in parallel with the slow policy check, and a rejected guess rolls back
+through the same restitution path — IRREVERSIBLE and abstentions are never speculated. Full write-up
+(the measured cascade, break-even calibration): [`research/SPECULATIVE_EXECUTION.md`](research/SPECULATIVE_EXECUTION.md).
 
 **Deterministic-first receding-horizon planning** ([`lib/runtime/horizon-planner.ts`](lib/runtime/horizon-planner.ts),
-`npm run plan`) takes the same floor and turns it into a *planner's safety filter* — the most forward-looking
-use of the engine. Learned-verifier-guided search (LLM tree search, process/outcome reward value functions)
-puts the expensive component on the **scoring** side: a model is evaluated at every node to estimate how good
-a partial plan is. This controller **inverts that cost curve**. It (a) *proposes* candidate action sequences
-toward a goal, (b) at **stage 1** prunes them with the deterministic reversibility classifier as an **exact,
-zero-model-spend feasibility filter** — any plan that would take an IRREVERSIBLE action, or one the floor
-*abstains* on, is dropped *before* anything is scored — (c) at **stage 2** scores the survivors with a
-**deterministic objective** (goal-progress minus an irreversibility/blast-radius cost), (d) executes exactly
-**one** step through the existing speculative gate (which itself routes a rejected fire back through
-`safeExecute`), then **re-observes and re-plans** (receding horizon). The catastrophic branch is eliminated
-*for free*, the inverse of paying a learned verifier to probabilistically notice it.
-
-It is **a demonstration harness, not a deployed planner**: the action library is small and the objective is
-hand-specified. What it shows, by really running, is narrow and verifiable — on a fixed billing-close
-scenario the stage-1 filter prunes every plan containing the one-step `DROP TABLE` shortcut *for free*, the
-deterministic objective then prefers the **reversible** local-snapshot route over the equal-progress
-**compensable** vendor charge, the controller reaches the goal in reversible steps with **0 irreversible
-actions ever executed**, it **adapts** when an unmodeled disturbance (a late-arriving row) makes the observed
-state diverge from the prediction, and the **entire executed trajectory is undone through `safeExecute` back
-to the pre-episode baseline** — the payoff of the stage-1 prune: everything it did was recoverable. Where a
-learned value function *would* plug in is the stage-2 objective seam; the default objective is deterministic
-on purpose (zero spend, fully reproducible).
+`npm run plan`) uses the classifier as an exact, zero-model-spend feasibility filter inside a
+propose → prune → score → step → replan controller — any candidate plan containing an IRREVERSIBLE
+action (or an abstention) is dropped before anything is scored. Full write-up (the billing-close
+scenario, honest scope): [`research/HORIZON_PLANNING.md`](research/HORIZON_PLANNING.md).
 
 ## Where it sits
 

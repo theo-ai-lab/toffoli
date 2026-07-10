@@ -26,6 +26,12 @@ live in the top-level [`README.md`](../README.md); this is the map for the forma
 
 ## The systems work
 
+- [`SPECULATIVE_EXECUTION.md`](SPECULATIVE_EXECUTION.md) — reversibility-gated speculative execution
+  (`npm run speculate`): the floor as a speedup, the measured deterministic-vs-deterministic cascade,
+  and the calibrated break-even rule for when speculation pays off.
+- [`HORIZON_PLANNING.md`](HORIZON_PLANNING.md) — deterministic-first receding-horizon planning
+  (`npm run plan`): the classifier as an exact, zero-model-spend feasibility filter inside a
+  propose → prune → score → step → replan controller, honestly scoped as a demonstration harness.
 - [`lib/engine/`](../lib/engine/) — the zero-dependency deterministic classifier, the dependency-aware
   resumable planner, and the attestation surface (Ed25519 by default).
 - [`lib/runtime/`](../lib/runtime/) — the operational-safety floor: the enforced kill-switch
