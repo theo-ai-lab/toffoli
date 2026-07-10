@@ -1,0 +1,79 @@
+import { describe, expect, it } from "vitest";
+import { COMMANDS, parseCliArgs, renderCommandHelp, renderHelp } from "./cli";
+
+describe("cli — argument parsing (pure)", () => {
+  it("parses each subcommand", () => {
+    for (const cmd of COMMANDS) {
+      const inv = parseCliArgs([cmd]);
+      expect(inv.command).toBe(cmd);
+      expect(inv.error).toBeNull();
+    }
+  });
+
+  it("treats no arguments as 'nothing to do' (no command, no error — main shows usage)", () => {
+    const inv = parseCliArgs([]);
+    expect(inv.command).toBeNull();
+    expect(inv.error).toBeNull();
+    expect(inv.help).toBe(false);
+  });
+
+  it("accepts -h/--help globally and per command", () => {
+    expect(parseCliArgs(["--help"]).help).toBe(true);
+    expect(parseCliArgs(["-h"]).help).toBe(true);
+    const inv = parseCliArgs(["classify", "--help"]);
+    expect(inv.help).toBe(true);
+    expect(inv.command).toBe("classify");
+  });
+
+  it("accepts -V/--version", () => {
+    expect(parseCliArgs(["--version"]).version).toBe(true);
+    expect(parseCliArgs(["-V"]).version).toBe(true);
+  });
+
+  it("rejects an unknown command with a usage error", () => {
+    const inv = parseCliArgs(["undelete"]);
+    expect(inv.error).toMatch(/unknown command 'undelete'/i);
+  });
+
+  it("rejects an unknown flag with a usage error", () => {
+    expect(parseCliArgs(["demo", "--fast"]).error).toMatch(/unknown option '--fast'/i);
+  });
+
+  it("classify: takes an input file, '-' for stdin, and its two flags", () => {
+    const inv = parseCliArgs(["classify", "actions.json", "--deterministic-only", "--compact"]);
+    expect(inv.command).toBe("classify");
+    expect(inv.file).toBe("actions.json");
+    expect(inv.deterministicOnly).toBe(true);
+    expect(inv.compact).toBe(true);
+    expect(parseCliArgs(["classify", "-"]).file).toBe("-");
+    expect(parseCliArgs(["classify"]).file).toBeNull();
+  });
+
+  it("classify flags are rejected on other commands (no silent no-ops)", () => {
+    expect(parseCliArgs(["demo", "--deterministic-only"]).error).toMatch(/only valid with 'classify'/i);
+    expect(parseCliArgs(["mcp", "--compact"]).error).toMatch(/only valid with 'classify'/i);
+  });
+
+  it("rejects a stray positional argument on commands that take none", () => {
+    expect(parseCliArgs(["demo", "extra"]).error).toMatch(/unexpected argument/i);
+    expect(parseCliArgs(["classify", "a.json", "b.json"]).error).toMatch(/unexpected argument/i);
+  });
+});
+
+describe("cli — help text", () => {
+  it("the top-level help names every subcommand and the env vars", () => {
+    const help = renderHelp();
+    for (const cmd of COMMANDS) expect(help).toContain(cmd);
+    expect(help).toContain("ANTHROPIC_API_KEY");
+    expect(help).toContain("TOFFOLI_EXECUTE_DISABLED");
+    expect(help).toContain("TOFFOLI_MCP_FS_ROOT");
+  });
+
+  it("every subcommand has its own help with a Usage line", () => {
+    for (const cmd of COMMANDS) {
+      const help = renderCommandHelp(cmd);
+      expect(help).toContain(`toffoli ${cmd}`);
+      expect(help).toMatch(/usage/i);
+    }
+  });
+});

@@ -45,24 +45,32 @@ function render(report: EvalReport, label: string): void {
   console.log(`  accuracy on fixtures, NOT real-world prevalence (gated to self-run; pending).\n`);
 }
 
-const all = loadGoldSet({ includeIncidents: true });
-render(evaluate(all), "synthetic-seed + documented-incident");
+/** Run the whole eval and print every table (exported so the `toffoli eval` CLI shares this path). */
+export function runEval(): void {
+  const all = loadGoldSet({ includeIncidents: true });
+  render(evaluate(all), "synthetic-seed + documented-incident");
 
-// The deterministic floor's accuracy holds on real documented incidents alone, too.
-const realOnly = all.filter(isReal);
-if (realOnly.length) render(evaluate(realOnly), "documented-incident only (real-world cases)");
+  // The deterministic floor's accuracy holds on real documented incidents alone, too.
+  const realOnly = all.filter(isReal);
+  if (realOnly.length) render(evaluate(realOnly), "documented-incident only (real-world cases)");
 
-// At-scale: a controlled SYNTHETIC distribution (400 cases, ~22% signal-omitted ambiguous), with a
-// held-out split and a percentile-bootstrap CI — statistical power the tiny hand-labeled set lacks.
-// This measures the classifier on a known distribution, NOT real-world prevalence.
-const generated = generateLabeledSet({ n: 400, seed: 1234 });
-const { heldOut } = split(generated, 7);
-const heldReport = evaluate(heldOut);
-const ci = bootstrapRecallCI(heldOut, { resamples: 2000, seed: 99 });
-const irr = heldReport.perClass.find((m) => m.cls === "IRREVERSIBLE");
-console.log(`${bar()}\n  AT-SCALE (synthetic, controlled distribution — NOT prevalence)\n${bar()}`);
-console.log(`  generated held-out n=${heldOut.length} · IRREVERSIBLE support=${irr?.support ?? 0}`);
-console.log(`  IRREVERSIBLE recall: ${(irr?.recall ?? 0).toFixed(2)}  (bootstrap 95% CI ${ci.lo.toFixed(2)}–${ci.hi.toFixed(2)}, n=${ci.n}, ${ci.resamples} resamples)`);
-console.log(`  catastrophic misses: ${heldReport.dangerousMisses}   committed missed-escalations: ${heldReport.missedEscalations}`);
-console.log(`  ↑ the larger held-out set tightens the interval the hand-labeled n=24 set can't; the small`);
-console.log(`    set stays the harder, honest headline. Real-distribution numbers need real traces (pending).\n${bar()}\n`);
+  // At-scale: a controlled SYNTHETIC distribution (400 cases, ~22% signal-omitted ambiguous), with a
+  // held-out split and a percentile-bootstrap CI — statistical power the tiny hand-labeled set lacks.
+  // This measures the classifier on a known distribution, NOT real-world prevalence.
+  const generated = generateLabeledSet({ n: 400, seed: 1234 });
+  const { heldOut } = split(generated, 7);
+  const heldReport = evaluate(heldOut);
+  const ci = bootstrapRecallCI(heldOut, { resamples: 2000, seed: 99 });
+  const irr = heldReport.perClass.find((m) => m.cls === "IRREVERSIBLE");
+  console.log(`${bar()}\n  AT-SCALE (synthetic, controlled distribution — NOT prevalence)\n${bar()}`);
+  console.log(`  generated held-out n=${heldOut.length} · IRREVERSIBLE support=${irr?.support ?? 0}`);
+  console.log(`  IRREVERSIBLE recall: ${(irr?.recall ?? 0).toFixed(2)}  (bootstrap 95% CI ${ci.lo.toFixed(2)}–${ci.hi.toFixed(2)}, n=${ci.n}, ${ci.resamples} resamples)`);
+  console.log(`  catastrophic misses: ${heldReport.dangerousMisses}   committed missed-escalations: ${heldReport.missedEscalations}`);
+  console.log(`  ↑ the larger held-out set tightens the interval the hand-labeled n=24 set can't; the small`);
+  console.log(`    set stays the harder, honest headline. Real-distribution numbers need real traces (pending).\n${bar()}\n`);
+}
+
+// Run only as a script (`npm run eval`), not when imported by the CLI.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  runEval();
+}

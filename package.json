@@ -19,7 +19,16 @@
   "engines": {
     "node": ">=22"
   },
+  "bin": {
+    "toffoli": "dist/bin/toffoli.js"
+  },
+  "files": [
+    "dist",
+    "dataset/*.jsonl"
+  ],
   "scripts": {
+    "build": "esbuild lib/cli.ts --bundle --splitting --format=esm --platform=node --target=node22 --packages=external --outdir=dist/bin --entry-names=toffoli --chunk-names=chunks/[name]-[hash] --banner:js='#!/usr/bin/env node' --log-level=warning",
+    "prepack": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome lint",
@@ -51,6 +60,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
     "@types/node": "^24.0.1",
+    "esbuild": "0.28.1",
     "fast-check": "^4.8.0",
     "tsx": "^4.22.4",
     "typescript": "^5.7.2",

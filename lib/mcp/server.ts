@@ -134,8 +134,9 @@ function parsePolicyName(v: unknown): "default" | "sandbox" | undefined {
   throw new ToolInputError("'policy' must be one of 'default' | 'sandbox'");
 }
 
-/** Validate the AgentAction adapter record. Only id+tool are required; structured fields pass through. */
-function parseAgentAction(v: unknown): AgentAction {
+/** Validate the AgentAction adapter record. Only id+tool are required; structured fields pass
+ *  through. Exported: the CLI's `classify` reads the same untrusted shape and shares this validator. */
+export function parseAgentAction(v: unknown): AgentAction {
   const r = asRecord(v);
   const action: AgentAction = { id: asString(r["id"], "action.id"), tool: asString(r["tool"], "action.tool") };
   if (r["op"] !== undefined) action.op = r["op"] as ActionOp;
@@ -594,7 +595,8 @@ async function resolveEntrypointDeps(): Promise<Partial<ToffoliMcpDeps>> {
   return { world: new FsWorld(fsRoot) };
 }
 
-async function main(): Promise<void> {
+/** Start the server on stdio (exported so the `toffoli mcp` CLI shares this exact entry path). */
+export async function startServer(): Promise<void> {
   const overrides = await resolveEntrypointDeps();
   try {
     await createSdkServer(overrides);
@@ -605,5 +607,5 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  void main();
+  void startServer();
 }

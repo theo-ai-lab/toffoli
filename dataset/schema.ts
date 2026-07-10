@@ -7,7 +7,7 @@
  * and the provenance-firewall-aware loaders.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { z } from "zod";
@@ -15,6 +15,23 @@ import { isHeadlineEligible } from "../lib/engine/types";
 import type { GroundTruthSample } from "../lib/engine/types";
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * The dataset directory, resolved from the nearest package root rather than this module's own
+ * directory. At dev time this module lives at <root>/dataset/, but in the packaged CLI it is
+ * inlined into the bundle under <root>/dist/bin/, while the .jsonl gold set ships as plain data
+ * files at <root>/dataset/. Walking up to the nearest package.json finds <root> in both layouts.
+ */
+function packageRoot(from: string): string {
+  let dir = from;
+  for (;;) {
+    if (existsSync(join(dir, "package.json"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) throw new Error(`dataset loader: no package.json found above ${from}`);
+    dir = parent;
+  }
+}
+const datasetDir = join(packageRoot(here), "dataset");
 
 const Reversibility = z.enum(["NULLIPOTENT", "REVERSIBLE", "COMPENSABLE", "IRREVERSIBLE"]);
 
@@ -51,7 +68,7 @@ const SampleSchema = z.object({
 
 /** Parse one JSONL file into validated samples, with file:line context on failure. */
 export function loadJsonl(file: string): GroundTruthSample[] {
-  const text = readFileSync(join(here, file), "utf8");
+  const text = readFileSync(join(datasetDir, file), "utf8");
   const out: GroundTruthSample[] = [];
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {

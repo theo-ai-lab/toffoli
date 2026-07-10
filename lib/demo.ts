@@ -75,16 +75,17 @@ function truncate(s: string, n: number): string {
   return s.length <= n ? s : `${s.slice(0, n - 1)}…`;
 }
 
-async function main(): Promise<void> {
+/** Run the demo end to end (exported so the `toffoli demo` CLI shares this exact path). */
+export async function runDemo(): Promise<void> {
   const judge = isJudgeAvailable() ? claudeJudge() : undefined;
   if (!judge) console.log("\n  (running deterministic-only — set ANTHROPIC_API_KEY to enable the judge on the residual)");
   const plan = await restitute(run, { judge });
   console.log(renderReceipt(plan, run));
 }
 
-// Run only as a script, not when imported by a test.
+// Run only as a script, not when imported by a test or the CLI.
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((e) => {
+  runDemo().catch((e) => {
     console.error(e);
     process.exit(1);
   });
