@@ -18,18 +18,27 @@ env:
   NPM_CONFIG_MIN_RELEASE_AGE: "0"
 
 jobs:
+  # Full gate on every Node line the engines field claims to support (>=22): the suite,
+  # the eval, and the Lean-backed soundness gate all run per Node version on ubuntu.
   gate:
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: "24"
+          node-version: ${{ matrix.node-version }}
           cache: npm
       # Pin a recent npm so the engines constraint is enforced at install time (engines alone only warns).
       - run: npm i -g npm@latest
       # Reproducible, no lifecycle scripts from dependencies (supply-chain blast-radius control).
       - run: npm ci --ignore-scripts
+      # Compile + lint gates: green CI must prove the code typechecks and lints, not just that tests pass.
+      - run: npm run typecheck
+      - run: npm run lint
       - run: npm test
       - run: npm run eval
       # Install elan + Lean so the proof-gate's `lake build` / `lake exe export_table` resolve.
@@ -82,6 +91,23 @@ jobs:
           # classify: stdin → JSON verdicts, deterministic-only (no API key anywhere in this job)
           echo '{"id":"a1","tool":"email.send","op":"send","target":{"kind":"email","externalized":true}}' \
             | npx --no-install toffoli classify - --deterministic-only --compact | grep -F '"IRREVERSIBLE"'
+
+  # Cross-OS smoke: typecheck + the full engine suite on macOS, one cell (node 24).
+  # Enough to catch path/fs/subprocess portability regressions. The Lean proof steps are
+  # OS-independent and already run per-Node in the ubuntu gate matrix, so this job
+  # deliberately stops before `npm run gate` — no elan install on macOS.
+  macos-smoke:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm i -g npm@latest
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test
 
   supply-chain:
     runs-on: ubuntu-latest
