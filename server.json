@@ -1,0 +1,50 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.theo-ai-lab/toffoli",
+  "title": "Toffoli",
+  "description": "Undo layer for AI agents: checkpoint, reversibility classification, and gated recovery over MCP",
+  "repository": {
+    "url": "https://github.com/theo-ai-lab/toffoli",
+    "source": "github"
+  },
+  "websiteUrl": "https://theo-ai-lab.github.io/toffoli/",
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "toffoli",
+      "version": "0.1.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp",
+          "valueHint": "mcp",
+          "description": "The toffoli CLI subcommand that starts the MCP server on stdio."
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "ANTHROPIC_API_KEY",
+          "description": "Optional. Enables the gated LLM judge on the deterministic residual; without it every classification is deterministic and the server never loads the SDK.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "TOFFOLI_MCP_FS_ROOT",
+          "description": "Optional. Back the recovery world with the real-filesystem adapter rooted at this directory instead of the in-memory sandbox.",
+          "isRequired": false
+        },
+        {
+          "name": "TOFFOLI_EXECUTE_DISABLED",
+          "description": "Optional kill-switch. Set to 1 to force toffoli.recover into dry-run regardless of confirm tokens or requested mode.",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}
