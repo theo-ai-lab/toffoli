@@ -24,7 +24,9 @@
   },
   "files": [
     "dist",
-    "dataset/*.jsonl"
+    "dataset/*.jsonl",
+    "!dataset/captured.jsonl",
+    "!dataset/*.captured.jsonl"
   ],
   "scripts": {
     "build": "esbuild lib/cli.ts --bundle --splitting --format=esm --platform=node --target=node22 --packages=external --outdir=dist/bin --entry-names=toffoli --chunk-names=chunks/[name]-[hash] --banner:js='#!/usr/bin/env node' --log-level=warning",
