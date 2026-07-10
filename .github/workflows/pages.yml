@@ -5,8 +5,9 @@ name: pages
 #
 # The pages are REGENERATED FROM THE ENGINE before upload (`npm run design:build` renders the
 # `npm run demo` plan, the eval report, and the recovery harness into the marked regions), so the
-# published demo can never claim a number the engine no longer produces. The committed pages are
-# additionally locked to the engine by the no-drift test in lib/design/build.test.ts (recovery-gate).
+# published demo can never claim a number the engine no longer produces, and the deploy FAILS if
+# the committed pages drift from that output (same lock the no-drift test in
+# lib/design/build.test.ts enforces in recovery-gate) — published and committed pages never diverge.
 #
 # Runs on push to `main` once GitHub Pages is enabled (repo Settings → Pages → Source: "GitHub Actions").
 
@@ -45,6 +46,10 @@ jobs:
       - run: npm ci --ignore-scripts
       # Render the live engine output into the demo pages — what deploys is what the engine computes.
       - run: npm run design:build
+      # The committed pages must already BE that output (the no-drift lock). If regeneration
+      # changed anything, fail the deploy here instead of publishing pages the repository doesn't
+      # contain — run `npm run design:build` locally and commit the diff.
+      - run: git diff --exit-code -- design/
       - uses: actions/configure-pages@v6
         with:
           enablement: true
