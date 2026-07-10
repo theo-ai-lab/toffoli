@@ -93,3 +93,23 @@ mathematical kitsch.**
 *Design references that hold this bar: the correcting-journal-entry convention (post beside, never
 erase); art-conservation reversibility + Brandi distinguishability; kintsugi; the Plaid/Robinhood
 serif+mono restraint; WCAG 2.2 contrast and non-color encoding.*
+
+## 7. Built from the engine — the no-drift rule
+
+The published pages are **rendered from live engine output, never hand-written**. Each page in
+`design/` carries marked regions (`toffoli:<name>:start/end`); `npm run design:build`
+(lib/design/build.ts) fills them from the real thing:
+
+| Region | Source of truth |
+|---|---|
+| receipt rows / pivot / summary / verdict / escalations | the same `restitute(run)` plan `npm run demo` prints (lib/demo.ts) |
+| receipt methods table + headline | the same per-class report `npm run eval` prints (gold set, deterministic floor) |
+| explorer `ACTIONS` array | the engine's classifications + planned compensations for lib/design/explorer-run.ts |
+| index "measured" line | the live eval report + the end-to-end recovery harness (`npm run recover`'s scenario) |
+
+Everything outside the markers is hand-authored design; everything inside is generated. The
+committed pages are locked by the no-drift test (lib/design/build.test.ts): CI fails the moment a
+page claims something the engine no longer produces — fix by re-running `npm run design:build`
+and committing the diff, never by editing the region. `npm run design:check` is the same check as
+a command. The Pages workflow regenerates before every deploy, so the live demo equals the engine
+by construction.
