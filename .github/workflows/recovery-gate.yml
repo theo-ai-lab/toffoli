@@ -42,6 +42,47 @@ jobs:
       - name: recovery-soundness gate
         run: npm run gate
 
+  # The installable artifact, smoke-tested exactly as a stranger would get it: build the bin,
+  # `npm pack` the tarball, install it into a clean project, run the binary. NOTE on "private":
+  # package.json keeps "private": true until a release is deliberately cut — that flag blocks
+  # `npm publish` ONLY; `npm pack` and installing the tarball work as-is (verified), so this job
+  # needs no package.json manipulation and proves the future publish artifact on every push.
+  pack-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm i -g npm@latest
+      - run: npm ci --ignore-scripts
+      # Build explicitly, then pack with scripts off — the tarball content is exactly what a
+      # `npm publish` from this commit would ship (prepack would run the same build).
+      - run: npm run build
+      - name: pack the tarball
+        run: |
+          TARBALL="$(npm pack --ignore-scripts | tail -1)"
+          echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
+          tar -tzf "$TARBALL" | sort | sed -n '1,50p'
+      - name: install the tarball into a clean project and run the bin
+        run: |
+          SMOKE="$(mktemp -d)"
+          cd "$SMOKE"
+          npm init -y > /dev/null
+          npm install --ignore-scripts "$GITHUB_WORKSPACE/$TARBALL"
+          # --help / --version: the bin resolves and parses args
+          npx --no-install toffoli --help
+          npx --no-install toffoli --version
+          # demo + recover: the engine runs from the installed layout
+          npx --no-install toffoli demo | grep -F "RESTITUTION RECEIPT"
+          npx --no-install toffoli recover | grep -F "END-TO-END RECOVERY"
+          # eval: the packaged dataset resolves from the installed package root
+          npx --no-install toffoli eval | grep -F "HEADLINE"
+          # classify: stdin → JSON verdicts, deterministic-only (no API key anywhere in this job)
+          echo '{"id":"a1","tool":"email.send","op":"send","target":{"kind":"email","externalized":true}}' \
+            | npx --no-install toffoli classify - --deterministic-only --compact | grep -F '"IRREVERSIBLE"'
+
   supply-chain:
     runs-on: ubuntu-latest
     steps:

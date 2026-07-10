@@ -1,0 +1,67 @@
+name: release
+
+# npm publish with provenance, triggered by VERSION TAGS ONLY — never by branch pushes or PRs.
+# Cutting a release is a deliberate human act:
+#   1. flip package.json: remove "private": true and set the release version,
+#   2. update CHANGELOG.md, commit, and push a `vX.Y.Z` tag that matches package.json,
+#   3. this workflow builds, re-runs the quality gates, and publishes.
+#
+# Publishing auth is OIDC trusted publishing (no long-lived npm token in secrets): the npm package
+# must be configured on npmjs.com with this repo + workflow as a trusted publisher first — that
+# one-time setup is a maintainer action and is PENDING until the first release is cut.
+# The recovery-soundness gate (Lean proof + eval floors) runs in recovery-gate.yml on every push,
+# so the tagged commit has already passed it on main; this workflow re-runs the fast gates.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+  id-token: write # OIDC for npm provenance / trusted publishing
+
+env:
+  NPM_CONFIG_MIN_RELEASE_AGE: "0" # see recovery-gate.yml — the cooldown guards fresh installs, not CI's vetted lockfile
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          registry-url: "https://registry.npmjs.org"
+      # npm >= 11.5.1 is required for OIDC trusted publishing; also enforces engines at install time.
+      - run: npm i -g npm@latest
+      - run: npm ci --ignore-scripts
+
+      # A release is never allowed to publish something main's gates did not pass.
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: refuse to publish while package.json is still private
+        run: |
+          node -e '
+            const p = require("./package.json");
+            if (p.private) {
+              console.error("package.json still has \"private\": true — flipping it is step 1 of cutting a release (see the header of this workflow).");
+              process.exit(1);
+            }'
+
+      - name: refuse a tag that does not match package.json
+        run: |
+          node -e '
+            const v = require("./package.json").version;
+            const tag = process.env.GITHUB_REF_NAME;
+            if (tag !== "v" + v) {
+              console.error(`tag ${tag} does not match package.json version ${v}`);
+              process.exit(1);
+            }'
+
+      - name: publish to npm (provenance)
+        run: npm publish --provenance --access public
