@@ -38,6 +38,8 @@
     "eval": "tsx lib/engine/eval.ts",
     "calibrate": "tsx lib/engine/calibrate.ts",
     "demo": "tsx lib/demo.ts",
+    "design:build": "tsx lib/design/build.ts",
+    "design:check": "tsx lib/design/build.ts --check",
     "recover": "tsx lib/exec/recover.ts",
     "recover:fs": "tsx lib/exec/fs-recover.ts",
     "safe": "tsx lib/runtime/demo.ts",

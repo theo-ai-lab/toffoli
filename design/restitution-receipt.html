@@ -126,6 +126,10 @@
 
     <div class="colhead"><span></span><span>Action — what the agent did</span><span class="r">Restitution — the contra entry</span></div>
 
+    <!-- The rows below are the SAME `restitute(run)` plan `npm run demo` prints, rendered at
+         build time by `npm run design:build` (lib/design/build.ts) and locked by the no-drift
+         test (lib/design/build.test.ts). Edit lib/demo.ts, not this region. -->
+    <!-- toffoli:receipt-rows:start -->
     <div class="row s-null">
       <div class="glyph">·</div>
       <div class="act"><span class="id">a1</span><div class="what">read order counts</div><div class="detail">db.query · SELECT count(*) FROM orders</div></div>
@@ -135,18 +139,18 @@
     <div class="row s-rev">
       <div class="glyph">‹</div>
       <div class="act"><span class="id">a2</span><div class="what">created /backups/orders.bak</div><div class="detail">fs.write · create</div></div>
-      <div><div class="state">restored</div><div class="contra">delete the created file <span class="restoration">· exact</span></div></div>
+      <div><div class="state">restored</div><div class="contra">delete <span class="restoration">· exact</span></div></div>
     </div>
 
     <div class="row s-rev">
       <div class="glyph">‹</div>
-      <div class="act"><span class="id">a3</span><div class="what">soft-deleted test orders</div><div class="detail">db.execute · DELETE … is_test=true · recoverable</div></div>
-      <div><div class="state">restored</div><div class="contra">restore from the recoverable copy <span class="restoration">· exact</span></div></div>
+      <div class="act"><span class="id">a3</span><div class="what">soft-deleted test orders</div><div class="detail">db.execute · DELETE FROM orders WHERE is_test = … · recoverable</div></div>
+      <div><div class="state">restored</div><div class="contra">restore <span class="restoration">· exact</span></div></div>
     </div>
 
     <div class="row s-comp">
       <div class="glyph">~</div>
-      <div class="act"><span class="id">a4</span><div class="what">charged the enrichment API <span class="num">$12.00</span></div><div class="detail">stripe.charge · pay · in refund window</div></div>
+      <div class="act"><span class="id">a4</span><div class="what">charged the enrichment API <span class="num">$12</span></div><div class="detail">stripe.charge · pay · in refund window</div></div>
       <div><div class="state">compensated</div><div class="contra">refund <span class="num">(12.00)</span> — net <span class="num">0.00</span> <span class="restoration">· semantic</span></div></div>
     </div>
 
@@ -154,32 +158,39 @@
 
     <div class="row s-irr">
       <div class="glyph">!</div>
-      <div class="act"><span class="id">a5</span><div class="what">dropped table orders_archive</div><div class="detail">db.execute · DROP TABLE · no recoverable copy</div></div>
+      <div class="act"><span class="id">a5</span><div class="what">dropped table orders_archive</div><div class="detail">db.execute · DROP TABLE orders_archive · no recoverable copy</div></div>
       <div><div class="state">requires human</div><div class="contra">escalated ↑</div></div>
     </div>
 
     <div class="row s-irr">
       <div class="glyph">!</div>
-      <div class="act"><span class="id">a6</span><div class="what">emailed the summary to client@acme.com</div><div class="detail">email.send · externalized</div></div>
+      <div class="act"><span class="id">a6</span><div class="what">emailed the summary to client@acme.com</div><div class="detail">email.send · send · externalized</div></div>
       <div><div class="state">requires human</div><div class="contra">escalated ↑</div></div>
     </div>
+    <!-- toffoli:receipt-rows:end -->
 
+    <!-- toffoli:receipt-summary:start -->
     <div class="summary">
       <span><span class="num">6</span> actions</span><span><span class="num">1</span> no-effect</span>
       <span><span class="num">2</span> restored</span><span><span class="num">1</span> compensated</span>
       <span><span class="num">2</span> escalated</span>
     </div>
     <div class="verdict bad">! A human must decide on the irreversible remainder.</div>
+    <!-- toffoli:receipt-summary:end -->
 
+    <!-- toffoli:receipt-escalations:start -->
     <section class="escalations">
       <h2><span>Requires Human</span><span class="stamp">REQUIRES HUMAN</span></h2>
-      <div class="esc"><span class="sev">critical</span> · a5 — Decide whether to rebuild the dropped table from an external source; no independent copy remains.<div class="why">TRUNCATE/DROP with no recoverable copy destroys the structure and its rows.</div></div>
-      <div class="esc"><span class="sev">high</span> · a6 — Decide whether to send a correction to the recipient.<div class="why">A message delivered to an external party cannot be un-sent; only a follow-up correction is possible.</div></div>
+      <div class="esc"><span class="sev">high</span> · a6 — Decide whether to send a correction/retraction to the recipient.<div class="why">a message delivered to an external party cannot be un-sent; only a follow-up correction is possible</div></div>
+      <div class="esc"><span class="sev">critical</span> · a5 — Decide whether to rebuild the destroyed data from an external source; no independent copy remains.<div class="why">TRUNCATE/DROP with no recoverable copy destroys the structure and its rows</div></div>
     </section>
+    <!-- toffoli:receipt-escalations:end -->
 
     <div class="methods">
       Deterministic-first, LLM-marked. Reversibility = ƒ(action × independent recovery state), never the verb alone;
-      unknown → escalate. Classifier accuracy on the labeled fixtures (not a prevalence claim):
+      unknown → escalate. Classifier accuracy on the labeled fixtures (not a prevalence claim), computed by
+      `npm run eval` at build time:
+      <!-- toffoli:receipt-methods:start -->
       <table>
         <thead><tr><th>class</th><th>precision</th><th>recall</th><th>support</th></tr></thead>
         <tbody>
@@ -190,6 +201,7 @@
         </tbody>
       </table>
       IRREVERSIBLE recall <span class="num">0.83</span> (95% CI <span class="num">0.64–0.93</span>, Wilson, n=24) · catastrophic misses <span class="num">0</span> · committed missed-escalations <span class="num">0</span> · reproduce: <span class="num">npm run eval</span>
+      <!-- toffoli:receipt-methods:end -->
     </div>
   </main>
   <p class="caption">A restitution receipt is a correction artifact, not a success artifact — the contra column of a ledger, run backwards.</p>
