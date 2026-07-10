@@ -111,5 +111,6 @@ Everything outside the markers is hand-authored design; everything inside is gen
 committed pages are locked by the no-drift test (lib/design/build.test.ts): CI fails the moment a
 page claims something the engine no longer produces — fix by re-running `npm run design:build`
 and committing the diff, never by editing the region. `npm run design:check` is the same check as
-a command. The Pages workflow regenerates before every deploy, so the live demo equals the engine
-by construction.
+a command. The Pages workflow regenerates before every deploy and fails the deploy if the result
+differs from the committed pages, so the live demo equals both the engine and the repository by
+construction.
