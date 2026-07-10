@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isJudgeAvailable, claudeJudge, buildJudgeUserContent, redactValue } from "./judge";
+import { isJudgeAvailable, claudeJudge, buildJudgeUserContent, parseVerdict, redactValue } from "./judge";
 import type { AgentAction } from "./types";
 
 const A = (over: Partial<AgentAction>): AgentAction => ({ id: "t", tool: "x", ...over });
@@ -34,5 +34,29 @@ describe("judge — gating, fencing, redaction", () => {
     expect(v.a.length).toBeLessThan(600);
     expect(v.nested.b.length).toBeLessThan(600);
     expect(v.a).toContain("truncated");
+  });
+});
+
+describe("parseVerdict — the model's reply is untrusted data, validated at the boundary", () => {
+  it("accepts a well-formed verdict", () => {
+    const v = parseVerdict({ class: "IRREVERSIBLE", confidence: 0.9, rationale: "settled funds left the system" });
+    expect(v).toEqual({ class: "IRREVERSIBLE", confidence: 0.9, rationale: "settled funds left the system" });
+  });
+
+  it("rejects an unknown class (never coerced into a verdict)", () => {
+    expect(() => parseVerdict({ class: "MOSTLY_FINE", confidence: 0.5, rationale: "r" })).toThrow(/class/);
+  });
+
+  it("rejects a confidence outside [0,1] or non-numeric", () => {
+    expect(() => parseVerdict({ class: "REVERSIBLE", confidence: 1.5, rationale: "r" })).toThrow(/confidence/);
+    expect(() => parseVerdict({ class: "REVERSIBLE", confidence: "high", rationale: "r" })).toThrow(/confidence/);
+    expect(() => parseVerdict({ class: "REVERSIBLE", confidence: Number.NaN, rationale: "r" })).toThrow(/confidence/);
+  });
+
+  it("rejects a missing/empty rationale and non-object payloads", () => {
+    expect(() => parseVerdict({ class: "REVERSIBLE", confidence: 0.5, rationale: "" })).toThrow(/rationale/);
+    expect(() => parseVerdict({ class: "REVERSIBLE", confidence: 0.5 })).toThrow(/rationale/);
+    expect(() => parseVerdict(null)).toThrow(/object/);
+    expect(() => parseVerdict([1])).toThrow(/object/);
   });
 });

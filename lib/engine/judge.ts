@@ -21,12 +21,16 @@
  *  - A measurement instrument. Until it is calibrated against the human gold set
  *    (Cohen's κ — see eval/), it is assistive and clearly badged, never trusted blind.
  *
- * Uses the official Anthropic SDK (@anthropic-ai/sdk) for the gated judge.
+ * Uses the official Anthropic SDK (@anthropic-ai/sdk) for the gated judge — imported LAZILY,
+ * at judge-call time, never at module load. The engine's public surface re-exports this module,
+ * so a static SDK import here would make every consumer (the MCP server binary above all) load
+ * the SDK just to start. With the lazy import the server starts cold with no API key and no SDK
+ * resolution; the SDK is touched only on the first judged residual. (The type-only import below
+ * is erased at compile time and loads nothing.)
  */
 
 import { randomUUID } from "node:crypto";
-import Anthropic from "@anthropic-ai/sdk";
-import { z } from "zod";
+import type Anthropic from "@anthropic-ai/sdk";
 import type { AgentAction, Reversibility } from "./types";
 
 export interface JudgeVerdict {
@@ -48,11 +52,32 @@ export function isJudgeAvailable(): boolean {
   return Boolean(process.env["ANTHROPIC_API_KEY"]);
 }
 
-const VerdictSchema = z.object({
-  class: z.enum(["NULLIPOTENT", "REVERSIBLE", "COMPENSABLE", "IRREVERSIBLE"]),
-  confidence: z.number().min(0).max(1),
-  rationale: z.string().min(1),
-});
+const CLASSES: readonly Reversibility[] = ["NULLIPOTENT", "REVERSIBLE", "COMPENSABLE", "IRREVERSIBLE"];
+
+/**
+ * Validate the model's reply at the boundary (it is third-party data, structured-output or not).
+ * Hand-rolled — three fields — so validating a verdict pulls in no library at judge-call time.
+ * Exported for testing.
+ */
+export function parseVerdict(raw: unknown): JudgeVerdict {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new Error("claudeJudge: verdict must be a JSON object");
+  }
+  const r = raw as Record<string, unknown>;
+  const cls = r["class"];
+  if (typeof cls !== "string" || !(CLASSES as readonly string[]).includes(cls)) {
+    throw new Error(`claudeJudge: verdict 'class' must be one of ${CLASSES.join("|")}`);
+  }
+  const confidence = r["confidence"];
+  if (typeof confidence !== "number" || Number.isNaN(confidence) || confidence < 0 || confidence > 1) {
+    throw new Error("claudeJudge: verdict 'confidence' must be a number in [0,1]");
+  }
+  const rationale = r["rationale"];
+  if (typeof rationale !== "string" || rationale.length === 0) {
+    throw new Error("claudeJudge: verdict 'rationale' must be a non-empty string");
+  }
+  return { class: cls as Reversibility, confidence, rationale };
+}
 
 /** JSON-schema the model is constrained to (structured outputs; Haiku 4.5 supports this). */
 const VERDICT_FORMAT = {
@@ -110,9 +135,13 @@ export function claudeJudge(opts: ClaudeJudgeOptions = {}): ReversibilityJudge {
     const apiKey = opts.apiKey ?? process.env["ANTHROPIC_API_KEY"];
     if (!apiKey) throw new Error("claudeJudge: no ANTHROPIC_API_KEY (the judge is gated; run deterministic-only)");
 
+    // The SDK loads HERE, after the key gate — so a keyless process (the common cold start,
+    // including the packaged `toffoli mcp` binary) never resolves @anthropic-ai/sdk at all.
+    const { default: AnthropicSdk } = await import("@anthropic-ai/sdk");
+
     // Haiku 4.5 takes neither `effort` nor `thinking` (both 400 there); a plain
     // structured-output call is the right shape for a cheap residual classification.
-    const client = new Anthropic({ apiKey, maxRetries: 1, timeout });
+    const client = new AnthropicSdk({ apiKey, maxRetries: 1, timeout });
     const res = await client.messages.create({
       model,
       max_tokens: maxTokens,
@@ -125,7 +154,7 @@ export function claudeJudge(opts: ClaudeJudgeOptions = {}): ReversibilityJudge {
     if (res.stop_reason === "refusal") throw new Error("claudeJudge: model refused — escalate to IRREVERSIBLE");
     const text = res.content.find((b): b is Anthropic.TextBlock => b.type === "text")?.text;
     if (!text) throw new Error(`claudeJudge: no text block (stop_reason=${res.stop_reason})`);
-    return VerdictSchema.parse(JSON.parse(text));
+    return parseVerdict(JSON.parse(text));
   };
 }
 
