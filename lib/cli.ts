@@ -97,6 +97,13 @@ Options
   -h, --help     show help (or 'toffoli <command> --help' for one command)
   -V, --version  print the version
 
+Examples
+  toffoli demo                             the sample receipt, offline, zero config
+  toffoli classify actions.json            classify a file of agent actions
+  toffoli classify - < run.json            the same JSON on stdin
+  toffoli classify - --deterministic-only  rules only — never consult the LLM judge
+  TOFFOLI_EXECUTE_DISABLED=1 toffoli mcp   serve the MCP tools, recovery forced to dry-run
+
 Environment
   ANTHROPIC_API_KEY         enables the gated LLM judge on the deterministic residual
   TOFFOLI_EXECUTE_DISABLED  kill-switch: recovery execution is forced to dry-run
@@ -120,6 +127,12 @@ a JSON array of classifications to stdout.
 Options
   --deterministic-only  rules only; never call the LLM judge
   --compact             single-line JSON output (default is pretty-printed)
+
+Examples
+  toffoli classify actions.json
+  toffoli classify - --deterministic-only --compact < run.json
+  echo '{"id":"a1","tool":"email.send","op":"send","target":{"kind":"email","externalized":true}}' \\
+    | toffoli classify -
 `,
   recover: `Usage: toffoli recover
 

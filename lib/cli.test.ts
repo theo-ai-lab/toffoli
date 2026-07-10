@@ -76,4 +76,22 @@ describe("cli — help text", () => {
       expect(help).toMatch(/usage/i);
     }
   });
+
+  it("the top-level help carries worked examples for the copy-paste path", () => {
+    const help = renderHelp();
+    expect(help).toContain("Examples");
+    expect(help).toContain("toffoli classify - < run.json");
+    expect(help).toContain("TOFFOLI_EXECUTE_DISABLED=1 toffoli mcp");
+  });
+
+  it("classify's help includes a runnable stdin example", () => {
+    const help = renderCommandHelp("classify");
+    expect(help).toContain("Examples");
+    // The example JSON must be a valid AgentAction — keep it honest by parsing it.
+    const json = help.match(/echo '(\{.*\})'/)?.[1];
+    expect(json).toBeDefined();
+    const parsed = JSON.parse(json as string) as { id: string; tool: string };
+    expect(parsed.id).toBeTruthy();
+    expect(parsed.tool).toBeTruthy();
+  });
 });
