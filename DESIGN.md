@@ -114,3 +114,8 @@ and committing the diff, never by editing the region. `npm run design:check` is 
 a command. The Pages workflow regenerates before every deploy and fails the deploy if the result
 differs from the committed pages, so the live demo equals both the engine and the repository by
 construction.
+
+One artifact sits deliberately outside that lock: the README hero
+(`docs/assets/restitution-receipt.png`) is a static screenshot of the committed receipt page,
+refreshed by hand. It links to the live page — which *is* drift-locked — so a stale screenshot
+can mislead for at most one click; re-capture it whenever the receipt's design or data changes.

@@ -2,10 +2,23 @@
 
 ### A self-healing AI agent with a built-in undo layer.
 
+[![recovery-gate](https://github.com/theo-ai-lab/toffoli/actions/workflows/recovery-gate.yml/badge.svg)](https://github.com/theo-ai-lab/toffoli/actions/workflows/recovery-gate.yml)
+[![pages](https://github.com/theo-ai-lab/toffoli/actions/workflows/pages.yml/badge.svg)](https://theo-ai-lab.github.io/toffoli/)
+
 **Toffoli does a real job by calling tools — and when a tool call damages live state, it
 automatically puts back what can be put back and escalates only what truly can't, to a named
 human.** The undo layer for AI agents, shipped two ways: a self-healing agent loop, and an MCP
 server any agent host can call.
+
+<p align="center">
+  <a href="https://theo-ai-lab.github.io/toffoli/restitution-receipt.html">
+    <img src="docs/assets/restitution-receipt.png" width="460"
+         alt="A restitution receipt: six agent actions down the left with the contra entry for each on the right — two restored exactly, one compensated with a refund, and past the point-of-no-return rule, two escalated to a named human, with the measured per-class eval in the fine print."></a>
+  <br>
+  <em>The <a href="https://theo-ai-lab.github.io/toffoli/restitution-receipt.html">restitution receipt</a> —
+  a capture of the live page. Every row and number inside it is regenerated from the real engine on
+  deploy, and the deploy fails if the committed page drifts from engine output.</em>
+</p>
 
 When an agent damages real state at 2 AM — deletes the wrong rows, double-charges a card,
 half-runs a migration — there is no general, developer-grade way to *put the world back*. The
@@ -20,6 +33,17 @@ irreversible class as the headline. It plans the restitution; it does not silent
 The name is literal: a Toffoli gate is a reversible logic gate that is its own inverse — apply it
 twice and the system returns to where it started. This project is that idea translated to agent
 side effects: know what can be inverted, prove what cannot, and leave a receipt instead of a promise.
+
+**Contents:**
+[The self-healing agent](#the-self-healing-agent) ·
+[How it works](#how-it-works) ·
+[Formal guarantees & systems depth](#formal-guarantees--systems-depth) ·
+[Where it sits](#where-it-sits) ·
+[The Ledger — documented incidents](#the-ledger--documented-incidents) ·
+[Run it locally](#run-it-locally) ·
+[Limitations](#limitations--known-failure-modes) ·
+[Stack](#stack) ·
+[License](#license)
 
 ## The self-healing agent
 
