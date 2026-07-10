@@ -12,6 +12,9 @@ dist/
 .DS_Store
 logs/
 
+# vitest coverage output (floors are enforced from vitest.config.ts; the report is generated)
+coverage/
+
 # local-only
 .private/
 

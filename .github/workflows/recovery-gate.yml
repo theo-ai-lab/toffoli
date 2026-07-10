@@ -39,7 +39,22 @@ jobs:
       # Compile + lint gates: green CI must prove the code typechecks and lints, not just that tests pass.
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm test
+      # The suite runs under coverage; the floors live in vitest.config.ts and fail the
+      # build when the measured baseline regresses.
+      - run: npm run test:coverage
+      - name: coverage in job summary
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            node -e "
+              const t = require('./coverage/coverage-summary.json').total;
+              console.log('### Coverage (node ${{ matrix.node-version }})');
+              console.log('| metric | covered |');
+              console.log('|---|---|');
+              for (const k of ['statements', 'branches', 'functions', 'lines'])
+                console.log('| ' + k + ' | ' + t[k].pct + '% (' + t[k].covered + '/' + t[k].total + ') |');
+            " >> "$GITHUB_STEP_SUMMARY"
+          fi
       - run: npm run eval
       # Install elan + Lean so the proof-gate's `lake build` / `lake exe export_table` resolve.
       # `--default-toolchain stable` bootstraps elan; the first `lake build` fetches the toolchain
