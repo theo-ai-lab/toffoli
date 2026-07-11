@@ -17,6 +17,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadGoldSet } from "../dataset/schema";
 import { evaluate } from "./engine/metrics";
+import { lakeOnPath, leanMissingHint } from "./lean-toolchain";
 import { recoveryScenario, buildRecoveryCase } from "./exec/recover";
 import { safeExecute, computeConfirmToken } from "./runtime/safe-executor";
 import { SANDBOX_AUTO_POLICY } from "./runtime/policy";
@@ -68,7 +69,9 @@ try {
   proofKernelOk = true;
   proofKernelDetail = "lake build (formal/) — soundness + corollary kernel-check, no sorry";
 } catch (e) {
-  proofKernelDetail = `lake build failed: ${String((e as Error).message).split("\n")[0]}`;
+  // Distinguish "no Lean toolchain installed" (actionable: install elan) from "the proof failed to
+  // kernel-check" (a real regression) — a missing `lake` otherwise reads as an opaque exec failure.
+  proofKernelDetail = lakeOnPath(proofEnv) ? `lake build failed: ${String((e as Error).message).split("\n")[0]}` : leanMissingHint();
 }
 
 let proofFaithfulOk = false;
@@ -83,7 +86,8 @@ try {
   proofFaithfulDetail = "classifyDeterministic (abstain↦⊤) == verified classifyPlus on all signals";
 } catch (e) {
   proofFaithfulOk = false;
-  proofFaithfulDetail = `diff_check failed: ${String((e as Error).message).split("\n")[0]}`;
+  // diff_check drives `lake exe export_table` too, so a missing toolchain surfaces here as well.
+  proofFaithfulDetail = lakeOnPath(proofEnv) ? `diff_check failed: ${String((e as Error).message).split("\n")[0]}` : leanMissingHint();
 }
 
 const checks = [
