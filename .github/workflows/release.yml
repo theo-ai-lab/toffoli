@@ -9,8 +9,10 @@ name: release
 # Publishing auth is OIDC trusted publishing (no long-lived npm token in secrets): the npm package
 # must be configured on npmjs.com with this repo + workflow as a trusted publisher first — that
 # one-time setup is a maintainer action and is PENDING until the first release is cut.
-# The recovery-soundness gate (Lean proof + eval floors) runs in recovery-gate.yml on every push,
-# so the tagged commit has already passed it on main; this workflow re-runs the fast gates.
+# This workflow re-runs the FULL release-blocking gate on the EXACT tagged commit — lint, typecheck,
+# the covered suite, build, AND the recovery-soundness gate (Lean proof + eval floors) — rather than
+# trusting that the tag sits on a commit main already gated (a tag pushed on an off-main commit would
+# otherwise publish unverified). Publishing is never allowed to ship what the tagged commit did not pass.
 
 on:
   push:
@@ -38,11 +40,22 @@ jobs:
       - run: npm i -g npm@latest
       - run: npm ci --ignore-scripts
 
-      # A release is never allowed to publish something main's gates did not pass.
+      # A release is never allowed to publish something the TAGGED COMMIT itself did not pass — so
+      # re-run the full release-blocking gate here, not just the fast checks.
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm test
+      - run: npm run test:coverage # the suite under the coverage floors (vitest.config.ts)
       - run: npm run build
+      # Install elan + Lean so the recovery-soundness gate's `lake build` / diff_check resolve
+      # (identical to recovery-gate.yml); the pinned toolchain is fetched on the first `lake build`.
+      - name: install elan + Lean
+        run: |
+          curl -fsSL https://elan.lean-lang.org/elan-init.sh | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      # The core release-blocking invariant: catastrophic-miss floor, IRREVERSIBLE recall/precision,
+      # executor parity, the kill-switch, and the Lean soundness proof — verified on the tagged commit.
+      - run: npm run gate
+      - run: npm run eval # prints the per-class headline numbers into the release provenance log
 
       - name: refuse to publish while package.json is still private
         run: |
