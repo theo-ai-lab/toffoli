@@ -41,6 +41,7 @@ side effects: know what can be inverted, prove what cannot, and leave a receipt 
 [Where it sits](#where-it-sits) ·
 [The Ledger — documented incidents](#the-ledger--documented-incidents) ·
 [Run it locally](#run-it-locally) ·
+[Use it with your agent host](#use-it-with-your-agent-host) ·
 [Limitations](#limitations--known-failure-modes) ·
 [Stack](#stack) ·
 [License](#license)
@@ -250,7 +251,12 @@ self-modified a sandboxed, versioned runner → REVERSIBLE. Agent-self-reported 
 ## Run it locally
 
 **Prerequisites:** Node ≥ 22 (CI runs Node 24) · npm ≥ 11.10.0 recommended (enables the supply-chain
-release-age cooldown in `.npmrc`; older npm ignores it with a harmless warning).
+release-age cooldown in `.npmrc`; older npm ignores it with a harmless warning). Everything below runs
+on Node alone **except** `npm run gate` and `npm run proof:check`, which kernel-check the Lean 4
+soundness proof and additionally need the Lean toolchain via
+[elan](https://github.com/leanprover/elan): `curl -fsSL https://elan.lean-lang.org/elan-init.sh | sh -s -- -y --default-toolchain stable`
+(the pinned toolchain is fetched on the first `lake build`). Without it, `npm run gate` reports the
+missing toolchain with this exact install line instead of a raw exec error.
 
 ```bash
 npm install
@@ -268,6 +274,12 @@ npm run trace       # the recovery loop as OpenTelemetry spans (ship to LangSmit
 npm run gate        # the recovery-soundness gate CI runs (fails on a regression)
 ```
 
+Prefer one binary? `npm run build` packages every command above as a single `toffoli <command>` bin
+(`dist/bin/toffoli.js`) — `toffoli demo` ≙ `npm run demo`, plus `classify` (JSON from a file or
+stdin), `recover`, `eval`, and `mcp`; `toffoli --help` / `toffoli <command> --help` print worked
+examples and `toffoli --version` reads the package version. It's the exact artifact CI's `pack-smoke`
+job installs from a tarball and drives on every push.
+
 Optional: put `ANTHROPIC_API_KEY` in `.env.local` (see `.env.example`) to enable the gated judge
 on the residual. Without it, the engine is deterministic-only and the demo still runs end to end.
 
@@ -276,6 +288,45 @@ on the residual. Without it, the engine is deterministic-only and the demo still
 (`.github/workflows/pages.yml`; enable Settings → Pages → Source: GitHub Actions). A separate
 [`recovery-gate`](.github/workflows/recovery-gate.yml) Action blocks any build that regresses
 recovery soundness.
+
+## Use it with your agent host
+
+The engine also ships as an **MCP server any agent host can call** — three tools
+(`toffoli.checkpoint`, `toffoli.classify`, `toffoli.recover`) over stdio, starting cold with no API
+key (the judge SDK is never loaded until a key is present). Build the `toffoli` bin once and run it:
+
+```bash
+npm run build                 # → dist/bin/toffoli.js
+node dist/bin/toffoli.js mcp  # the MCP server on stdio (or `npm run mcp` straight from a clone)
+```
+
+Register it with the `claude` CLI — absolute paths, because hosts spawn servers from arbitrary
+working directories:
+
+```bash
+claude mcp add toffoli -- node "$PWD/dist/bin/toffoli.js" mcp
+```
+
+Or drop the equivalent into Claude Desktop's `claude_desktop_config.json` (or any host that takes an
+`mcpServers` map):
+
+```json
+{
+  "mcpServers": {
+    "toffoli": {
+      "command": "node",
+      "args": ["/absolute/path/to/toffoli/dist/bin/toffoli.js", "mcp"],
+      "env": { "TOFFOLI_MCP_FS_ROOT": "/directory/the/agent/works/in" }
+    }
+  }
+}
+```
+
+Leave `env` out to run against the in-memory sandbox world (safe default for a first look); add
+`"TOFFOLI_EXECUTE_DISABLED": "1"` to keep recovery permanently plan-only while evaluating. The full
+walkthrough — every env var, the MCP Inspector, what the key-free official-SDK interop test proves,
+and the (pending) `npx toffoli` path once the package is published — is in
+[`docs/HOST_INTEGRATION.md`](docs/HOST_INTEGRATION.md).
 
 ## Limitations & known failure modes
 
@@ -304,9 +355,10 @@ eval, the receipt artifact, and the unattended-deploy safety floor.
 
 Taxonomy & decision rules: [`dataset/TAXONOMY.md`](dataset/TAXONOMY.md) · formal model & soundness:
 [`THEORY.md`](THEORY.md) · design system: [`DESIGN.md`](DESIGN.md) · spec: [`SPEC.md`](SPEC.md) ·
-eval methodology: [`eval/README.md`](eval/README.md) · threat & failure-mode mapping (OWASP / AgentRx /
-TRAIL): [`docs/THREAT_MAPPING.md`](docs/THREAT_MAPPING.md) · related work, standards alignment &
-limitations: [`docs/RELATED_WORK.md`](docs/RELATED_WORK.md) · observability:
+eval methodology: [`eval/README.md`](eval/README.md) · host / MCP integration:
+[`docs/HOST_INTEGRATION.md`](docs/HOST_INTEGRATION.md) · threat & failure-mode mapping (OWASP /
+AgentRx / TRAIL): [`docs/THREAT_MAPPING.md`](docs/THREAT_MAPPING.md) · related work, standards
+alignment & limitations: [`docs/RELATED_WORK.md`](docs/RELATED_WORK.md) · observability:
 [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md).
 
 ## License
