@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { COMMANDS, parseCliArgs, renderCommandHelp, renderHelp } from "./cli";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { COMMANDS, parseCliArgs, renderCommandHelp, renderHelp, runCli } from "./cli";
 
 describe("cli — argument parsing (pure)", () => {
   it("parses each subcommand", () => {
@@ -93,5 +96,67 @@ describe("cli — help text", () => {
     const parsed = JSON.parse(json as string) as { id: string; tool: string };
     expect(parsed.id).toBeTruthy();
     expect(parsed.tool).toBeTruthy();
+  });
+});
+
+describe("cli — runCli classify (in-process, deterministic-only)", () => {
+  let out = "";
+  let err = "";
+  let outSpy: ReturnType<typeof vi.spyOn>;
+  let errSpy: ReturnType<typeof vi.spyOn>;
+  let dir: string;
+
+  beforeEach(() => {
+    out = "";
+    err = "";
+    const cap = (sink: "out" | "err") =>
+      ((chunk: unknown) => {
+        const s = typeof chunk === "string" ? chunk : String(chunk);
+        if (sink === "out") out += s;
+        else err += s;
+        return true;
+      }) as typeof process.stdout.write;
+    outSpy = vi.spyOn(process.stdout, "write").mockImplementation(cap("out"));
+    errSpy = vi.spyOn(process.stderr, "write").mockImplementation(cap("err"));
+    dir = mkdtempSync(join(tmpdir(), "toffoli-cli-"));
+  });
+
+  afterEach(() => {
+    outSpy.mockRestore();
+    errSpy.mockRestore();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("classifies a file of actions and exits 0", async () => {
+    const f = join(dir, "actions.json");
+    writeFileSync(f, JSON.stringify([{ id: "a1", tool: "email.send", op: "send", target: { kind: "email", externalized: true } }]));
+    const code = await runCli(["classify", f, "--deterministic-only", "--compact"]);
+    expect(code).toBe(0);
+    const parsed = JSON.parse(out) as Array<{ class: string; llmAssisted: boolean }>;
+    expect(parsed[0]?.class).toBe("IRREVERSIBLE");
+    expect(parsed[0]?.llmAssisted).toBe(false);
+  });
+
+  it("a missing file is a clean usage error (exit 2, no stack trace)", async () => {
+    const code = await runCli(["classify", join(dir, "nope.json")]);
+    expect(code).toBe(2);
+    expect(err).toContain("cannot read file");
+    expect(err).not.toContain("at readFileSync");
+  });
+
+  it("invalid JSON is a clean usage error (exit 2)", async () => {
+    const f = join(dir, "bad.json");
+    writeFileSync(f, "{ not json");
+    const code = await runCli(["classify", f]);
+    expect(code).toBe(2);
+    expect(err).toContain("not valid JSON");
+  });
+
+  it("an action that fails validation is a clean usage error naming the index (exit 2)", async () => {
+    const f = join(dir, "invalid-action.json");
+    writeFileSync(f, JSON.stringify([{ tool: "email.send" }])); // missing required id
+    const code = await runCli(["classify", f]);
+    expect(code).toBe(2);
+    expect(err).toContain("classify input [0]");
   });
 });

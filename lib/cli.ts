@@ -197,7 +197,18 @@ async function runClassify(inv: CliInvocation): Promise<void> {
   if (inv.file === null && process.stdin.isTTY) {
     throw new UsageError("classify needs input: a file path, or JSON piped on stdin (see 'toffoli classify --help')");
   }
-  const text = inv.file !== null && inv.file !== "-" ? readFileSync(inv.file, "utf8") : await readStdin();
+  let text: string;
+  if (inv.file !== null && inv.file !== "-") {
+    // A typo'd path is the most common classify mistake — route it through the exit-2 usage path
+    // with a clean message instead of leaking a Node ENOENT stack trace out of the generic catch.
+    try {
+      text = readFileSync(inv.file, "utf8");
+    } catch (e) {
+      throw new UsageError(`cannot read file '${inv.file}': ${e instanceof Error ? e.message : String(e)}`);
+    }
+  } else {
+    text = await readStdin();
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);

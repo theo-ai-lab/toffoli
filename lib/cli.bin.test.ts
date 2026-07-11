@@ -149,6 +149,16 @@ describe("toffoli bin — cold start (no node_modules above the bundle, no API k
     expect(r.stderr).toContain("unknown command 'undelete'");
     expect(r.stderr).toContain("Usage");
   });
+
+  it("classify on a missing file exits 2 with a clean message and no stack trace", async () => {
+    // The most common classify mistake (a typo'd path) must route through the usage path like the
+    // other classify input errors — a clean exit-2 message, not a leaked Node ENOENT stack trace.
+    const r = await runBin(coldBin, ["classify", "does-not-exist.json"]);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("cannot read file 'does-not-exist.json'");
+    expect(r.stderr).not.toContain("at readFileSync");
+    expect(r.stderr).not.toMatch(/\bat .*\(node:/);
+  });
 });
 
 describe("toffoli bin — in-repo bundle (externals + dataset resolvable)", () => {
