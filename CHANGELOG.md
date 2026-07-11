@@ -15,8 +15,9 @@ first release is deliberately cut via the tag-gated `release.yml` workflow.
 - **Engine + eval core** — the reversibility classifier (NULLIPOTENT / REVERSIBLE / COMPENSABLE /
   IRREVERSIBLE), restitution planner, terminal receipt, labeled gold set, and the per-class eval
   with Wilson CIs; the initial public cut of the repo (`781f7b6`, 2026-06-07).
-- **Documented-incident dataset at n=24** — +12 web-verified incidents, 3 adjudicated; headline
-  0.83 IRREVERSIBLE recall / 0.95 precision on fixtures (`c57e58c`, 2026-06-14).
+- **Documented-incident dataset at n=18** — +12 web-verified incidents, 3 adjudicated; the headline
+  landed at 0.83 IRREVERSIBLE recall (n=24 IRREVERSIBLE labels across the 51-action gold set) / 0.95
+  precision on fixtures (`c57e58c`, 2026-06-14).
 - **Self-healing agent stack** — scripted agent loop with fault→recover→self-correct, `SqlWorld`
   on `node:sqlite`, the MCP server (checkpoint / classify / recover), cross-run recovery memory,
   permission-oracle, and counterexample search (`3d6786b`, merged `82d99a3`, 2026-06-17/20).
