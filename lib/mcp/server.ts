@@ -32,16 +32,19 @@
  * Zero runtime dependencies (node:crypto + node:readline only).
  */
 
-import { randomUUID } from "node:crypto";
+import { createPublicKey, randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import {
   classifyAction,
   claudeJudge,
   isJudgeAvailable,
   planResumable,
+  sanitizeWithAttestations,
+  verifySigned,
   type ActionOp,
   type AgentAction,
   type Classification,
+  type RecoveryAttestation,
   type ResourceRef,
   type ReversibilityJudge,
 } from "../engine/index";
@@ -163,6 +166,51 @@ export function parseAgentAction(v: unknown): AgentAction {
   return action;
 }
 
+/**
+ * The caller-required attestation gate.
+ *
+ * `target.recoverable` / `target.externalized` / `priorState` / `committed:false` / an open
+ * transaction are the SAFE-direction signals the classifier commits on — and over this boundary they
+ * arrive from the agent being audited. One forged `recoverable: true` turns a hard delete from
+ * "IRREVERSIBLE, escalate to a human" into an auto-eligible REVERSIBLE at confidence 1.0.
+ *
+ * Supplying `attest` requires each of those signals to carry an Ed25519 signature from a trusted
+ * instrument, bound to this run; anything unattested is STRIPPED before classification, so the
+ * classifier sees "unknown" and fails safe. Absent `attest`, nothing changes — this is an explicit
+ * caller-wired guard, never a silent policy shift.
+ *
+ * Ed25519 only over the wire: the HMAC scheme in attest.ts is a single-trust-domain reference, and
+ * shipping a shared secret through a tool call would hand the forger the key.
+ */
+interface AttestGate {
+  runId: string;
+  publicKeyPem: string;
+  attestations: RecoveryAttestation[];
+}
+
+function parseAttestGate(v: unknown): AttestGate | undefined {
+  if (v === undefined || v === null) return undefined;
+  const r = asRecord(v);
+  const runId = asString(r["runId"], "attest.runId");
+  const publicKeyPem = asString(r["publicKeyPem"], "attest.publicKeyPem");
+  if (!Array.isArray(r["attestations"])) throw new ToolInputError("'attest.attestations' must be an array");
+  try {
+    createPublicKey(publicKeyPem);
+  } catch (e) {
+    throw new ToolInputError(`'attest.publicKeyPem' is not a readable public key: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  return { runId, publicKeyPem, attestations: r["attestations"] as RecoveryAttestation[] };
+}
+
+/** Strip every safe-direction signal not backed by a valid attestation for this run. */
+function applyAttestGate(actions: AgentAction[], gate: AttestGate): { actions: AgentAction[]; sanitized: number } {
+  const publicKey = createPublicKey(gate.publicKeyPem);
+  const out = sanitizeWithAttestations(actions, gate.attestations, (att) => verifySigned(att, publicKey), { runId: gate.runId });
+  let sanitized = 0;
+  for (let i = 0; i < actions.length; i++) if (JSON.stringify(out[i]) !== JSON.stringify(actions[i])) sanitized++;
+  return { actions: out, sanitized };
+}
+
 // ── the three tool handlers (exported for unit tests) ───────────────────────────
 
 export interface CheckpointResult {
@@ -195,6 +243,8 @@ export interface ClassifyResult {
   requiresHuman: boolean;
   /** True iff the gated LLM judge — not a deterministic rule — produced the verdict. */
   judged: boolean;
+  /** Present only when the caller required attestation. `sanitized` = an unattested signal was stripped. */
+  attestation?: { applied: true; sanitized: boolean };
 }
 
 /** Classify one action through the cascade (rules → gated judge → fail-safe-to-IRREVERSIBLE). */
@@ -202,15 +252,20 @@ export async function handleClassify(deps: ToffoliMcpDeps, raw: unknown): Promis
   const r = asRecord(raw);
   if (r["action"] === undefined) throw new ToolInputError("toffoli.classify requires an 'action' object");
   const deterministicOnly = asOptBool(r["deterministicOnly"], "deterministicOnly") ?? false;
-  const action = parseAgentAction(r["action"]);
+  const gate = parseAttestGate(r["attest"]);
+  let action = parseAgentAction(r["action"]);
+  let sanitized = 0;
+  if (gate) ({ actions: [action], sanitized } = applyAttestGate([action], gate) as { actions: [AgentAction]; sanitized: number });
   const judge = deterministicOnly ? undefined : deps.judge;
   const classification = await classifyAction(action, judge);
-  return {
+  const result: ClassifyResult = {
     classification,
     recoverable: classification.class === "REVERSIBLE" || classification.class === "COMPENSABLE",
     requiresHuman: classification.class === "IRREVERSIBLE",
     judged: classification.llmAssisted,
   };
+  if (gate) result.attestation = { applied: true, sanitized: sanitized > 0 };
+  return result;
 }
 
 export interface RecoverResult {
@@ -225,6 +280,8 @@ export interface RecoverResult {
   afterSnapshot: WorldState;
   /** Verification against a prior checkpoint, when `checkpointId` was supplied. */
   checkpoint?: { id: string; found: boolean; takenAt?: string; recoverableMatchesCheckpoint?: boolean; baseline?: WorldState };
+  /** Present only when the caller required attestation. `sanitized` = how many actions lost an unattested signal. */
+  attestation?: { applied: true; sanitized: number };
 }
 
 /**
@@ -238,13 +295,17 @@ export async function handleRecover(deps: ToffoliMcpDeps, raw: unknown): Promise
   if (!Array.isArray(actionsRaw) || actionsRaw.length === 0) {
     throw new ToolInputError("toffoli.recover requires a non-empty 'actions' array");
   }
-  const actions: AgentAction[] = actionsRaw.map((a, i) => {
+  let actions: AgentAction[] = actionsRaw.map((a, i) => {
     try {
       return parseAgentAction(a);
     } catch (e) {
       throw new ToolInputError(`actions[${i}]: ${e instanceof Error ? e.message : String(e)}`);
     }
   });
+
+  const gate = parseAttestGate(r["attest"]);
+  let sanitizedCount = 0;
+  if (gate) ({ actions, sanitized: sanitizedCount } = applyAttestGate(actions, gate));
 
   const deterministicOnly = asOptBool(r["deterministicOnly"], "deterministicOnly") ?? false;
   const mode = parseMode(r["mode"]);
@@ -277,6 +338,7 @@ export async function handleRecover(deps: ToffoliMcpDeps, raw: unknown): Promise
     report,
     afterSnapshot,
   };
+  if (gate) result.attestation = { applied: true, sanitized: sanitizedCount };
 
   if (checkpointId !== undefined) {
     const rec = deps.checkpoints.get(checkpointId);
@@ -327,9 +389,17 @@ const ACTION_SCHEMA = {
       properties: {
         kind: { type: "string", description: "e.g. 'file' | 'db.row' | 'payment' | 'email' | 'deployment'." },
         id: { type: "string" },
-        priorState: { description: "The prior value/snapshot, if preserved — its presence makes an 'update' REVERSIBLE." },
-        recoverable: { type: "boolean", description: "TRUSTED signal: an independent recoverable copy exists (backup/PITR/trash)." },
-        externalized: { type: "boolean", description: "TRUSTED signal: the effect crossed a trust boundary (email sent, payment settled)." },
+        priorState: { description: "CALLER-ASSERTED: the prior value/snapshot, if preserved — its presence makes an 'update' REVERSIBLE." },
+        recoverable: {
+          type: "boolean",
+          description:
+            "CALLER-ASSERTED safe-direction signal: an independent recoverable copy exists (backup/PITR/trash). Believed as given: on a delete it yields REVERSIBLE at confidence 1.0, which the default policy will auto-execute WITHOUT a human. Pass `attest` to require this signal to be signed by a trusted instrument instead.",
+        },
+        externalized: {
+          type: "boolean",
+          description:
+            "CALLER-ASSERTED signal: the effect crossed a trust boundary (email sent, payment settled). `true` is severe-direction (never attested); `false` is safe-direction and is gated by `attest` when supplied.",
+        },
       },
     },
     idempotencyKey: { type: ["string", "null"], description: "A Stripe-style key. De-duplicates the action; does NOT make it reversible." },
@@ -340,6 +410,47 @@ const ACTION_SCHEMA = {
     runId: { type: "string" },
   },
   required: ["id", "tool"],
+  additionalProperties: false,
+} as const;
+
+/** The opt-in attestation gate: require the safe-direction signals to be signed, or lose them. */
+const ATTEST_SCHEMA = {
+  type: "object",
+  description:
+    "OPTIONAL. Require every SAFE-direction signal (recoverable, externalized:false, priorState, committed:false, an open transaction) to carry a valid Ed25519 attestation from a trusted instrument, bound to this run. Unattested signals are stripped BEFORE classification, so a forged 'it's recoverable' fails safe to IRREVERSIBLE instead of buying auto-execution. Omit it and the caller-asserted signals are believed as given.",
+  properties: {
+    runId: { type: "string", description: "The run these attestations are bound to; an attestation from another run is ignored." },
+    publicKeyPem: { type: "string", description: "The trusted instrument's Ed25519 public key, SPKI PEM. (Ed25519 only — a shared HMAC secret would hand the forger the key.)" },
+    attestations: {
+      type: "array",
+      description: "Attestations produced by the instrument (see lib/engine/attest.ts `attestSigned`).",
+      items: {
+        type: "object",
+        properties: {
+          actionId: { type: "string" },
+          runId: { type: "string" },
+          issuedAt: { type: "string", description: "ISO 8601; signed." },
+          issuer: { type: "string" },
+          claim: {
+            type: "object",
+            properties: {
+              recoverable: { type: "boolean" },
+              notExternalized: { type: "boolean" },
+              hasPriorState: { type: "boolean" },
+              uncommitted: { type: "boolean" },
+              inOpenTransaction: { type: "boolean" },
+            },
+            additionalProperties: false,
+          },
+          sig: { type: "string", description: "base64 Ed25519 signature." },
+          scheme: { type: "string", enum: ["ed25519"] },
+        },
+        required: ["actionId", "runId", "issuedAt", "issuer", "claim", "sig"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["runId", "publicKeyPem", "attestations"],
   additionalProperties: false,
 } as const;
 
@@ -364,6 +475,7 @@ export const TOOL_DEFINITIONS = [
       properties: {
         action: ACTION_SCHEMA,
         deterministicOnly: { type: "boolean", description: "Force deterministic rules only; never call the LLM judge. Default false." },
+        attest: ATTEST_SCHEMA,
       },
       required: ["action"],
       additionalProperties: false,
@@ -384,6 +496,7 @@ export const TOOL_DEFINITIONS = [
         deterministicOnly: { type: "boolean", description: "Classify with deterministic rules only; never call the LLM judge. Default false." },
         policy: { type: "string", enum: ["default", "sandbox"], description: "Auto-execute policy: 'default' (REVERSIBLE only) or 'sandbox' (also COMPENSABLE refunds)." },
         checkpointId: { type: "string", description: "A checkpoint id to verify the recoverable subset was restored against." },
+        attest: ATTEST_SCHEMA,
       },
       required: ["actions"],
       additionalProperties: false,

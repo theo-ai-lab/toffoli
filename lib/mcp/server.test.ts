@@ -12,6 +12,8 @@ import {
   type ToffoliMcpDeps,
 } from "./server";
 import { World } from "../exec/world";
+import { attestSigned, generateInstrumentKeypair } from "../engine/attest";
+import { DEFAULT_AUTO_POLICY, decideAuto } from "../runtime/policy";
 
 // Inject an empty env (no kill-switch) and the deterministic-only path (judge omitted), so the
 // server is offline and reproducible — no API key, no wall-clock, no random ids.
@@ -197,5 +199,108 @@ describe("toffoli MCP protocol-version negotiation", () => {
   it("the advertised default is the newest supported revision", () => {
     expect(SUPPORTED_PROTOCOL_VERSIONS[0]).toBe(PROTOCOL_VERSION);
     expect(SUPPORTED_PROTOCOL_VERSIONS).toContain(PROTOCOL_VERSION);
+  });
+});
+
+// ── caller-supplied signals: the blast radius, and the gate that closes it ──────
+//
+// `target.recoverable` / `target.externalized` are documented in the tool schema as TRUSTED signals.
+// They arrive over the JSON-RPC boundary from the agent being audited, so "trusted" is a property of
+// the DEPLOYMENT, not of the server. These tests state exactly what one forged boolean buys, and
+// prove the attestation gate takes it back.
+
+describe("toffoli.classify — the blast radius of a forged safe-direction signal", () => {
+  const hardDelete = (target: Record<string, unknown>) => ({ id: "a1", tool: "db.delete", op: "delete", target: { kind: "db.row", id: "42", ...target } });
+
+  it("DOCUMENTED BLAST RADIUS: an unattested recoverable:true turns a hard delete auto-eligible at confidence 1.0", async () => {
+    const deps = makeDeps();
+    const honest = await handleClassify(deps, { action: hardDelete({}), deterministicOnly: true });
+    expect(honest.classification.class).toBe("IRREVERSIBLE");
+    expect(honest.requiresHuman).toBe(true);
+
+    const forged = await handleClassify(deps, { action: hardDelete({ recoverable: true }), deterministicOnly: true });
+    expect(forged.classification.class).toBe("REVERSIBLE");
+    expect(forged.classification.confidence).toBe(1);
+    // The consequence, spelled out: REVERSIBLE + confidence 1.0 + the 'restore' method is exactly
+    // what DEFAULT_AUTO_POLICY auto-executes. One unverified boolean removes the human.
+    const decision = decideAuto(forged.classification, { forActionId: "a1", method: "restore", idempotencyKey: "k", restoration: "exact", rationale: "r" }, DEFAULT_AUTO_POLICY);
+    expect(decision.auto).toBe(true);
+  });
+});
+
+describe("toffoli.classify — caller-required attestation closes it", () => {
+  const RUN = "run-7";
+  const hardDelete = { id: "a1", tool: "db.delete", op: "delete", runId: RUN, target: { kind: "db.row", id: "42", recoverable: true } };
+  const { publicKey, privateKey } = generateInstrumentKeypair();
+  const publicKeyPem = publicKey.export({ type: "spki", format: "pem" }).toString();
+  const signed = (runId: string) =>
+    attestSigned({ actionId: "a1", claim: { recoverable: true }, runId, issuedAt: "2026-06-14T00:00:00Z" }, privateKey);
+
+  it("with attestation required and NONE supplied, the unattested signal is stripped and the delete fails safe", async () => {
+    const deps = makeDeps();
+    const res = await handleClassify(deps, {
+      action: hardDelete,
+      deterministicOnly: true,
+      attest: { runId: RUN, publicKeyPem, attestations: [] },
+    });
+    expect(res.classification.class).toBe("IRREVERSIBLE");
+    expect(res.requiresHuman).toBe(true);
+    expect(res.attestation).toEqual({ applied: true, sanitized: true });
+  });
+
+  it("a VALID attestation from the trusted instrument is honoured", async () => {
+    const deps = makeDeps();
+    const res = await handleClassify(deps, {
+      action: hardDelete,
+      deterministicOnly: true,
+      attest: { runId: RUN, publicKeyPem, attestations: [signed(RUN)] },
+    });
+    expect(res.classification.class).toBe("REVERSIBLE");
+    expect(res.attestation).toEqual({ applied: true, sanitized: false });
+  });
+
+  it("an attestation minted for a DIFFERENT run does not carry over", async () => {
+    const deps = makeDeps();
+    const res = await handleClassify(deps, {
+      action: hardDelete,
+      deterministicOnly: true,
+      attest: { runId: RUN, publicKeyPem, attestations: [signed("some-other-run")] },
+    });
+    expect(res.classification.class).toBe("IRREVERSIBLE");
+    expect(res.attestation).toEqual({ applied: true, sanitized: true });
+  });
+
+  it("a forged signature is rejected", async () => {
+    const deps = makeDeps();
+    const forged = { ...signed(RUN), sig: Buffer.from("not-a-signature").toString("base64") };
+    const res = await handleClassify(deps, { action: hardDelete, deterministicOnly: true, attest: { runId: RUN, publicKeyPem, attestations: [forged] } });
+    expect(res.classification.class).toBe("IRREVERSIBLE");
+  });
+
+  it("omitting attest{} leaves behaviour byte-identical (opt-in, never a silent policy change)", async () => {
+    const deps = makeDeps();
+    const res = await handleClassify(deps, { action: hardDelete, deterministicOnly: true });
+    expect(res.classification.class).toBe("REVERSIBLE");
+    expect(res.attestation).toBeUndefined();
+  });
+
+  it("a malformed attest block is a clean input error, never a silent skip of the gate", async () => {
+    const deps = makeDeps();
+    await expect(handleClassify(deps, { action: hardDelete, deterministicOnly: true, attest: { runId: RUN, attestations: [] } })).rejects.toThrow(/publicKeyPem/);
+    await expect(handleClassify(deps, { action: hardDelete, deterministicOnly: true, attest: { runId: RUN, publicKeyPem, attestations: {} } })).rejects.toThrow(/attestations/);
+    await expect(handleClassify(deps, { action: hardDelete, deterministicOnly: true, attest: { runId: RUN, publicKeyPem: "not-a-key", attestations: [] } })).rejects.toThrow(/publicKeyPem/);
+  });
+
+  it("toffoli.recover applies the same gate to every action in the run", async () => {
+    const world = new World();
+    const deps = makeDeps(world);
+    const res = await handleRecover(deps, {
+      actions: [hardDelete],
+      deterministicOnly: true,
+      attest: { runId: RUN, publicKeyPem, attestations: [] },
+    });
+    expect(res.classifications[0]!.class).toBe("IRREVERSIBLE");
+    expect(res.attestation).toEqual({ applied: true, sanitized: 1 });
+    expect(res.planSummary.escalations).toBe(1);
   });
 });

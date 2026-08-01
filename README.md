@@ -183,7 +183,10 @@ Built to a research bar, not only an applied one. Full detail lives in [`THEORY.
   open transaction) to carry a valid signature bound to the run; `sanitizeWithAttestations()` strips
   any *unattested* signal **before** classification, so the engine fails safe rather than trust an
   agent self-report. It is an explicit caller-wired guard, not an automatic engine property — Ed25519
-  by default ([`lib/engine/attest.ts`](lib/engine/attest.ts), THEORY §7–§8).
+  by default ([`lib/engine/attest.ts`](lib/engine/attest.ts), THEORY §7–§8). The wire is the MCP
+  tools' optional `attest` parameter; leave it out and the caller's `recoverable` is believed as
+  given — one forged boolean turns a hard delete into an auto-executable REVERSIBLE at confidence
+  1.0. That default-off blast radius is a test in the suite, not a footnote.
 - **At-scale statistics.** A seeded generator produces a 400-case distribution with a held-out split
   and a bootstrap CI (IRREVERSIBLE recall 0.83, 95% CI 0.72–0.92, n=53) — power the tiny hand-labeled
   set can't give, clearly marked synthetic-at-scale, never a prevalence claim.
