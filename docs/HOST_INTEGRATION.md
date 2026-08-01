@@ -50,10 +50,22 @@ you run from, and the *installed* case is the supported one:
 
 Same three tools, same handlers, either way.
 
-The server implements the **`2025-06-18`** protocol revision and negotiates against that set: a client
-asking for a revision it does not implement — including a *newer* one, which is what the official
-SDK's client asks for today — is answered with `2025-06-18`, never with the revision it named. A
-server that echoed the request back would be claiming to speak whatever it was told.
+**Protocol revision — and which transport enforces it.** This server implements the **`2025-06-18`**
+revision: `SUPPORTED_PROTOCOL_VERSIONS` in `lib/mcp/server.ts` lists exactly the revisions whose tool
+surface has been checked against them, and adding one is a deliberate act. That set is enforced on
+one of the two transports above, not on both:
+
+- **On the built-in transport** — the installed / packed row, the supported path —
+  `negotiateProtocolVersion()` enforces it: a client asking for a revision this server does not
+  implement, including a *newer* one, is answered with `2025-06-18`, never with the revision it
+  named. A server that echoed the request back would be claiming to speak whatever it was told.
+  Locked by `lib/mcp/server.test.ts`, and driven out of the tarball by `lib/mcp/pack-smoke.test.ts`.
+- **On the SDK transport** — the clone row, and any run where the devDependency resolves — the
+  handshake belongs to `@modelcontextprotocol/sdk`, which negotiates against *its own* supported
+  set. `SUPPORTED_PROTOCOL_VERSIONS` is not threaded into `createSdkServer`, so this path answers
+  `2025-11-25` to an SDK client today, and answers the SDK's own latest — not `2025-06-18` — to an
+  unknown revision. Treat it as a development convenience: the revision guarantee travels with the
+  artifact a user installs, not with a clone.
 
 ## The `claude` CLI and other `mcpServers` hosts
 
@@ -126,6 +138,11 @@ schemas, and call them with arguments — try `toffoli.classify` on
   implements, never the one the client asked for) and with the **official MCP client**, whose
   `connect()` throws outright if the negotiated revision is one it can't support. That is the
   zero-dependency transport an installed user gets, exercised by a real host client.
+- **This page's own protocol claim** — `lib/mcp/host-integration-claims.test.ts`: spawns the clone
+  path exactly as `npm run mcp` does, records the revision each transport really negotiates, and
+  fails if the paragraph above states more than that. It pins the SDK path's answer verbatim, so
+  threading the supported set into `createSdkServer` later turns this red until the doc is corrected
+  in the same commit.
 
 Run them: `npx vitest run lib/mcp lib/cli.bin.test.ts`.
 
