@@ -26,6 +26,14 @@
  *     erase another's idempotency record (observed in the race probe: a successful refund whose
  *     marker count ended at zero).
  *
+ * Scope of the durability claim, so it is not read as more than it is: records are written with
+ * writeFileSync and replaced with rename, and neither is followed by fsync. That makes the journal
+ * crash-safe against PROCESS death — which is what the reproductions above exercise, and what a
+ * killed or restarted agent actually does — but NOT against machine power loss, where a returned
+ * write can still be lost from the page cache. Nor is there a lease: a `pending` record left by a
+ * live concurrent caller is indistinguishable from one left by a dead one, so a non-replay-safe key
+ * held by a slow caller escalates rather than waits. Both are remainders, not solved problems.
+ *
  * Zero runtime dependencies (node:fs / node:path / node:crypto only).
  */
 
