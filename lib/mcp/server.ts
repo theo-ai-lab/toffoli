@@ -199,7 +199,19 @@ function parseAttestGate(v: unknown): AttestGate | undefined {
   } catch (e) {
     throw new ToolInputError(`'attest.publicKeyPem' is not a readable public key: ${e instanceof Error ? e.message : String(e)}`);
   }
-  return { runId, publicKeyPem, attestations: r["attestations"] as RecoveryAttestation[] };
+  // Shape-check each attestation HERE rather than letting a malformed one throw mid-verification:
+  // an attestation that cannot even be read must be a loud input error, never a silently-dropped
+  // entry that leaves the caller believing the gate ran on it.
+  const attestations = (r["attestations"] as unknown[]).map((a, i) => {
+    const rec = typeof a === "object" && a !== null && !Array.isArray(a) ? (a as Record<string, unknown>) : undefined;
+    if (!rec) throw new ToolInputError(`'attest.attestations[${i}]' must be an object`);
+    for (const f of ["actionId", "runId", "sig"]) {
+      if (typeof rec[f] !== "string") throw new ToolInputError(`'attest.attestations[${i}].${f}' must be a string`);
+    }
+    if (typeof rec["claim"] !== "object" || rec["claim"] === null) throw new ToolInputError(`'attest.attestations[${i}].claim' must be an object`);
+    return rec as unknown as RecoveryAttestation;
+  });
+  return { runId, publicKeyPem, attestations };
 }
 
 /** Strip every safe-direction signal not backed by a valid attestation for this run. */
@@ -255,7 +267,11 @@ export async function handleClassify(deps: ToffoliMcpDeps, raw: unknown): Promis
   const gate = parseAttestGate(r["attest"]);
   let action = parseAgentAction(r["action"]);
   let sanitized = 0;
-  if (gate) ({ actions: [action], sanitized } = applyAttestGate([action], gate) as { actions: [AgentAction]; sanitized: number });
+  if (gate) {
+    const gated = applyAttestGate([action], gate);
+    action = gated.actions[0]!;
+    sanitized = gated.sanitized;
+  }
   const judge = deterministicOnly ? undefined : deps.judge;
   const classification = await classifyAction(action, judge);
   const result: ClassifyResult = {

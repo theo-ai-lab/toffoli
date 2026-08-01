@@ -291,6 +291,15 @@ describe("toffoli.classify — caller-required attestation closes it", () => {
     await expect(handleClassify(deps, { action: hardDelete, deterministicOnly: true, attest: { runId: RUN, publicKeyPem: "not-a-key", attestations: [] } })).rejects.toThrow(/publicKeyPem/);
   });
 
+  it("a malformed attestation entry is a loud input error, not a silently dropped one", async () => {
+    const deps = makeDeps();
+    for (const bad of [null, "nope", { runId: RUN }, { actionId: "a1", runId: RUN, sig: "x" }]) {
+      await expect(handleClassify(deps, { action: hardDelete, deterministicOnly: true, attest: { runId: RUN, publicKeyPem, attestations: [bad] } })).rejects.toThrow(
+        /attest\.attestations\[0\]/,
+      );
+    }
+  });
+
   it("toffoli.recover applies the same gate to every action in the run", async () => {
     const world = new World();
     const deps = makeDeps(world);
