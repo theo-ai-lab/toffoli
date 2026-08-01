@@ -56,7 +56,8 @@
     "sql-recover": "NODE_NO_WARNINGS=1 tsx lib/exec/sql-world.ts",
     "proof:check": "cd formal && lake build",
     "proof:diff": "tsx formal/diff_check.ts",
-    "gate": "tsx lib/gate.ts"
+    "gate": "tsx lib/gate.ts",
+    "gate:mutate": "tsx lib/gate-mutate.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
