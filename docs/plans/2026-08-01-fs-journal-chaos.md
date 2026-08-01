@@ -144,3 +144,47 @@ enumerate the entire kill-point space rather than sampling it.
 `npm run gate:mutate` (must stay 0 survivors), plus mutation-verify on the new
 tests: revert the atomic claim to check-then-write and confirm the deterministic
 TOCTOU test goes RED.
+
+## 6. Outcome
+
+Landed. 299 → 339 tests, all green; typecheck and lint clean; gate 16/16;
+`gate:mutate` 7/7 caught, 0 survivors.
+
+Both defects re-checked against the fixed code with the SAME real-world harnesses
+that found them:
+
+- The real-SIGKILL crash now yields `threw JournalError code=indeterminate`,
+  ledger unchanged, and `executor step status = failed` — a saga resume point
+  instead of a fabricated restoration.
+- The 12-racer probe went from **12/15 trials violating exactly-once to 0/15**.
+
+Mutation-verified (each reverted in place, tests re-run, then restored):
+
+- claim → check-then-write: all 4 TOCTOU tests fail, headline `expected 2 to be 1`
+  (the double refund).
+- `indeterminate` → report success: the crash-point property fails with the
+  counterexample `["after-claim", false, false, " "]` and
+  `expected 0 to be greater than or equal to 1`.
+
+### Defect found in EXISTING code that this work exposed
+
+**The coverage gate is red on this branch, and was already red before this
+slice.** CI runs `npm run test:coverage` (recovery-gate.yml, release.yml) and the
+floors live in vitest.config.ts. Measured from a clean `git archive` of HEAD
+(`03e6439`), all four floors were already failing:
+
+| metric     | HEAD (before) | after this slice | floor |
+|------------|---------------|------------------|-------|
+| statements | 75.09         | 75.81            | 76    |
+| branches   | 68.95         | **69.66 ✓**      | 69    |
+| functions  | 77.36         | 77.95            | 78    |
+| lines      | 76.44         | **77.23 ✓**      | 77    |
+
+This slice improved all four and cleared two of them. The remaining deficit is
+not in this slice's code (fs-journal.ts is at 97.8% statements / 100% functions,
+chaos.ts at 100%); it is dominated by entry-point scripts sitting at 0% —
+`gate.ts`, `gate-mutate.ts`, `eval.ts`, `calibrate.ts` and the six `*-demo.ts`
+files — which the `include: ["lib/**/*.ts"]` denominator counts in full. Closing
+it is a separate piece of work, and the repo's own rule in vitest.config.ts
+("Raise them as tests grow; never lower silently") says the fix is tests, not a
+lowered floor. Recorded rather than quietly patched around.

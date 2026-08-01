@@ -8,7 +8,8 @@
  *   1. RESTORATION — the recoverable subset on disk matches the pre-damage baseline.
  *   2. RESTRAINT  — the irreversible dimensions (dropped table, sent email) are left untouched.
  *   3. DURABLE IDEMPOTENCY — a fresh `FsWorld` over the SAME root replays the plan as a pure no-op
- *      (markers persisted to disk), i.e. recovery survives a process restart without double-applying.
+ *      (the claim journal is persisted to disk), i.e. recovery survives a process restart without
+ *      double-applying.
  *
  * Nothing here touches anything outside a throwaway temp directory, which is removed at the end.
  */
@@ -99,7 +100,7 @@ export function fsRecoveryScenario(opts: { root?: string; keep?: boolean } = {})
       JSON.stringify(after.tables) === JSON.stringify(damaged.tables) && JSON.stringify(after.outbox) === JSON.stringify(damaged.outbox);
 
     // DURABLE IDEMPOTENCY: a brand-new FsWorld over the same on-disk root replays the plan. Because
-    // the applied-markers are persisted, every inverse is a skip — no double-refund, no corruption.
+    // the claim journal is persisted, every inverse is a skip — no double-refund, no corruption.
     const replayWorld = new FsWorld(root);
     safeExecute(plan, replayWorld, { mode: "execute", confirmToken: token, policy: SANDBOX_AUTO_POLICY });
     const afterReplay = replayWorld.snapshot();
@@ -136,7 +137,7 @@ export function renderFsReport(r: FsRecoveryReport): string {
     `  executed ${r.result.steps.length} compensations → restored ${r.result.restored}, failed ${r.result.compensationFailed}, unsupported ${r.result.unsupported}, blocked ${r.result.blocked}`,
     `  recoverable subset matches pre-damage baseline ON DISK: ${r.recoverableRestored ? "YES" : "NO"}  (files ${m.files ? "✓" : "✗"}  rows ${m.rows ? "✓" : "✗"}  ledger ${m.ledger ? "✓" : "✗"})`,
     `  RESTRAINT — irreversible dimensions left untouched: ${r.irreversibleUntouched ? "YES (dropped table + sent email unchanged)" : "NO ✗"}`,
-    `  DURABLE IDEMPOTENCY — a fresh process replays the plan as a no-op: ${r.idempotentOnReplay ? "YES (markers persisted; no double-apply)" : "NO ✗"}`,
+    `  DURABLE IDEMPOTENCY — a fresh process replays the plan as a no-op: ${r.idempotentOnReplay ? "YES (claim journal persisted; no double-apply)" : "NO ✗"}`,
     `  escalated to a human (never auto-executed): ${r.result.escalated}`,
     `  ${"-".repeat(74)}`,
     `  RESULT: restored ${r.totals.restored}/${r.totals.recoverable} recoverable actions to a byte-identical baseline`,

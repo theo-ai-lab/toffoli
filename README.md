@@ -175,9 +175,12 @@ Built to a research bar, not only an applied one. Full detail lives in [`THEORY.
   dimensions stay untouched (`npm run recover` → restored 4/4; irreversible auto-executed: 0). The
   same executor runs against a **real-filesystem adapter**
   ([`lib/exec/fs-world.ts`](lib/exec/fs-world.ts), `npm run recover:fs`) — real files, a trash dir,
-  a persisted ledger, on-disk idempotency markers (a replay is a no-op even across a process restart)
-  — driven *through the full safety floor*, so `TOFFOLI_EXECUTE_DISABLED=1 npm run recover:fs` plans
-  only and mutates nothing. It's the seam a production backend slots into.
+  a persisted ledger, and a durable write-ahead claim journal
+  ([`lib/exec/fs-journal.ts`](lib/exec/fs-journal.ts)) so a replay is a no-op across a process
+  restart, exactly-once holds against concurrent callers on one root, and a compensation interrupted
+  by a crash is reported unresolved instead of done — driven *through the full safety floor*, so
+  `TOFFOLI_EXECUTE_DISABLED=1 npm run recover:fs` plans only and mutates nothing. It's the seam a
+  production backend slots into.
 - **Attested recovery context** (the novel *application*; the crypto primitives are mature). A caller
   can require every safe-direction signal (`recoverable`, `externalized:false`, a captured prior, an
   open transaction) to carry a valid signature bound to the run; `sanitizeWithAttestations()` strips

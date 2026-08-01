@@ -51,7 +51,9 @@ AgentAction[]  ──►  classifyDeterministic  ──►  (residual)  ──�
   `AgentAction` by *structure*, with no dependency on any ledger implementation (the adapter invariant).
 - **`lib/exec/`** — the reference executor. It applies the planned compensations to a sandboxed
   world, verifies the recoverable subset against the baseline, and also runs on a real-filesystem
-  adapter (`npm run recover:fs`) with persisted idempotency markers.
+  adapter (`npm run recover:fs`) backed by a durable write-ahead claim journal (`fs-journal.ts`):
+  an atomic exclusive-create claim, and an unresolved crash raised as `indeterminate` rather than
+  reported as done.
 - **`lib/runtime/`** — the unattended-deploy safety floor: plan-only default, enforced kill-switch,
   plan-bound confirm token, WAL journal, anti-fabrication check, transient retry, circuit breakers,
   and durable escalation.
