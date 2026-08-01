@@ -65,6 +65,11 @@ jobs:
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
       - name: recovery-soundness gate
         run: npm run gate
+      # A gate nobody has falsified is a decoration. This breaks, one at a time, the properties the
+      # gate claims to guard — in a scratch copy, never the checkout — and fails the build if any
+      # mutation SURVIVES. It is what proved four of the original checks were not load-bearing.
+      - name: gate falsification (every mutation must be caught)
+        run: npm run gate:mutate
 
   # The installable artifact, smoke-tested exactly as a stranger would get it: build the bin,
   # `npm pack` the tarball, install it into a clean project, run the binary. NOTE on "private":

@@ -272,6 +272,8 @@ npm run speculate   # reversibility-gated speculative execution: speculate-commi
 npm run plan        # deterministic-first receding-horizon planning: propose→prune(exact,free)→score→step→replan
 npm run trace       # the recovery loop as OpenTelemetry spans (ship to LangSmith/AgentOps)
 npm run gate        # the recovery-soundness gate CI runs (fails on a regression)
+npm run gate:mutate # falsify that gate: break each guarded property in a scratch copy, one at a
+                    #   time, and fail unless every mutation is CAUGHT
 ```
 
 Prefer one binary? `npm run build` packages every command above as a single `toffoli <command>` bin
