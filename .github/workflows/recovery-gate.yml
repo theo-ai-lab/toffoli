@@ -106,6 +106,18 @@ jobs:
           # classify: stdin → JSON verdicts, deterministic-only (no API key anywhere in this job)
           echo '{"id":"a1","tool":"email.send","op":"send","target":{"kind":"email","externalized":true}}' \
             | npx --no-install toffoli classify - --deterministic-only --compact | grep -F '"IRREVERSIBLE"'
+          # mcp: the INSTALLED server on stdio. @modelcontextprotocol/sdk is a devDependency, so an
+          # installed user always gets the hand-rolled zero-dependency loop — this drives exactly
+          # that. It must answer initialize with a revision it implements (never the one the client
+          # asked for), list the three tools, and classify with no key present.
+          printf '%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2099-01-01","capabilities":{},"clientInfo":{"name":"pack-smoke","version":"0"}}}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            | npx --no-install toffoli mcp > mcp-out.ndjson 2> mcp-err.txt
+          grep -F "hand-rolled stdio server ready" mcp-err.txt   # the transport an installed user gets
+          grep -F '"protocolVersion":"2025-06-18"' mcp-out.ndjson
+          grep -F '"toffoli.checkpoint"' mcp-out.ndjson
+          ! grep -F '2099-01-01' mcp-out.ndjson
 
   # Cross-OS smoke: typecheck + the full engine suite on macOS, one cell (node 24).
   # Enough to catch path/fs/subprocess portability regressions. The Lean proof steps are

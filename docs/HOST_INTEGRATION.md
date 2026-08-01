@@ -39,9 +39,21 @@ node dist/bin/toffoli.js mcp
 > `"private": true` — the tag-gated `release.yml` workflow publishes it with provenance once the
 > first release is cut. Until then, use the clone or the built binary above.
 
-With `@modelcontextprotocol/sdk` present (it is a devDependency of this repo), the server uses the
-official stdio transport; without it, it falls back to its built-in zero-dependency JSON-RPC loop.
-Same tools either way.
+**Which transport you get.** `@modelcontextprotocol/sdk` is a **devDependency and stays one** — the
+runtime-dependency budget is two (`@anthropic-ai/sdk`, `zod`). So the transport is decided by where
+you run from, and the *installed* case is the supported one:
+
+| you run | transport | how it is verified |
+|---|---|---|
+| an installed package / the packed tarball | the built-in zero-dependency stdio JSON-RPC loop | `lib/mcp/pack-smoke.test.ts` + the CI `pack-smoke` job — both drive the server **out of the tarball** |
+| a clone of this repo (`npm run mcp`) | the official SDK stdio transport (the devDependency is present) | `lib/mcp/sdk-interop.test.ts` |
+
+Same three tools, same handlers, either way.
+
+The server implements the **`2025-06-18`** protocol revision and negotiates against that set: a client
+asking for a revision it does not implement — including a *newer* one, which is what the official
+SDK's client asks for today — is answered with `2025-06-18`, never with the revision it named. A
+server that echoed the request back would be claiming to speak whatever it was told.
 
 ## The `claude` CLI and other `mcpServers` hosts
 
@@ -107,6 +119,13 @@ schemas, and call them with arguments — try `toffoli.classify` on
 - **Cold start** — `lib/cli.bin.test.ts`: the packaged `toffoli mcp` binary answers
   `initialize`/`tools/list` from a directory with no `node_modules` and no key, proving the
   zero-dependency fallback loop and the lazy judge.
+- **The packed artifact, driven for real** — `lib/mcp/pack-smoke.test.ts`: `npm pack`s the tarball,
+  extracts it under the OS temp dir (no `node_modules` in any ancestor), and runs `toffoli mcp`
+  **from the tarball's own layout** — bin path read from `package.json`, so a `files`/`bin` drift
+  fails here. It is driven twice: raw NDJSON (the negotiated revision is one this server
+  implements, never the one the client asked for) and with the **official MCP client**, whose
+  `connect()` throws outright if the negotiated revision is one it can't support. That is the
+  zero-dependency transport an installed user gets, exercised by a real host client.
 
 Run them: `npx vitest run lib/mcp lib/cli.bin.test.ts`.
 

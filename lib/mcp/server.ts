@@ -53,8 +53,20 @@ import { World, type RecoveryWorld, type WorldState } from "../exec/world";
 // ── identity ──────────────────────────────────────────────────────────────────
 const SERVER_NAME = "toffoli-mcp";
 const SERVER_VERSION = "0.1.0";
-/** A widely-supported MCP protocol revision; the client's requested version is echoed when present. */
-const PROTOCOL_VERSION = "2025-06-18";
+/**
+ * The MCP protocol revision this server IMPLEMENTS, and the one it offers by default.
+ *
+ * `SUPPORTED_PROTOCOL_VERSIONS` is the whole truth: the negotiated version is only ever a member of
+ * this list. Echoing back whatever a client asked for would make the server claim to speak any
+ * revision it was named — including future ones (the official SDK's client currently requests
+ * `2025-11-25`) and nonsense ones — while serving `2025-06-18` semantics. Per the MCP spec, a server
+ * that cannot honour the requested revision answers with one it does support and lets the client
+ * decide whether to continue. Adding a revision here is a deliberate act: it asserts the tool surface
+ * was checked against that revision.
+ */
+export const PROTOCOL_VERSION = "2025-06-18";
+/** Every revision this server may negotiate, newest first. `PROTOCOL_VERSION` is the default offer. */
+export const SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = [PROTOCOL_VERSION];
 
 // ── dependency surface (injectable for tests and for wiring a real adapter) ─────
 
@@ -432,11 +444,19 @@ interface JsonRpcResponse {
   error?: JsonRpcError;
 }
 
+/**
+ * Negotiate the protocol revision. Honour the client's request only when it is one this server
+ * actually implements; otherwise downgrade to the default offer rather than claim a revision whose
+ * semantics are not served here. Never returns a value outside SUPPORTED_PROTOCOL_VERSIONS.
+ */
+export function negotiateProtocolVersion(requested: unknown): string {
+  return typeof requested === "string" && SUPPORTED_PROTOCOL_VERSIONS.includes(requested) ? requested : PROTOCOL_VERSION;
+}
+
 function initializeResult(params: unknown): unknown {
   const r = asRecordOrEmpty(params);
-  const requested = typeof r["protocolVersion"] === "string" ? (r["protocolVersion"] as string) : undefined;
   return {
-    protocolVersion: requested ?? PROTOCOL_VERSION,
+    protocolVersion: negotiateProtocolVersion(r["protocolVersion"]),
     capabilities: { tools: { listChanged: false } },
     serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
     instructions:

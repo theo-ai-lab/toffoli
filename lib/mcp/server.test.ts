@@ -7,6 +7,8 @@ import {
   callToolByName,
   handleRpcMessage,
   TOOL_DEFINITIONS,
+  PROTOCOL_VERSION,
+  SUPPORTED_PROTOCOL_VERSIONS,
   type ToffoliMcpDeps,
 } from "./server";
 import { World } from "../exec/world";
@@ -158,5 +160,42 @@ describe("toffoli MCP JSON-RPC protocol layer", () => {
     expect(note).toBeNull();
     const unknown = await handleRpcMessage(deps, { jsonrpc: "2.0", id: 7, method: "bogus" });
     expect(unknown?.error?.code).toBe(-32601);
+  });
+});
+
+describe("toffoli MCP protocol-version negotiation", () => {
+  const initialize = async (protocolVersion?: unknown) => {
+    const deps = makeDeps();
+    const params = protocolVersion === undefined ? { capabilities: {} } : { protocolVersion, capabilities: {} };
+    const resp = await handleRpcMessage(deps, { jsonrpc: "2.0", id: 1, method: "initialize", params });
+    return (resp?.result as Record<string, unknown>)["protocolVersion"];
+  };
+
+  it("answers a supported revision with that same revision", async () => {
+    for (const v of SUPPORTED_PROTOCOL_VERSIONS) expect(await initialize(v)).toBe(v);
+  });
+
+  it("NEVER answers with a revision it does not implement — an unknown request is downgraded, not echoed", async () => {
+    // The failure this locks: echoing the client's requested version unconditionally makes the
+    // server claim to speak any revision a client names (including future or nonsense ones) while
+    // it only implements the tool surface of SUPPORTED_PROTOCOL_VERSIONS. The MCP spec requires the
+    // server to answer with a version IT supports when it cannot honour the request.
+    // `2025-11-25` is not hypothetical: it is what @modelcontextprotocol/sdk 1.29's client asks for.
+    for (const v of ["2025-11-25", "9999-12-31", "1999-01-01", "not-a-version", ""]) {
+      const answered = await initialize(v);
+      expect(answered).not.toBe(v);
+      expect(SUPPORTED_PROTOCOL_VERSIONS).toContain(answered);
+    }
+  });
+
+  it("a non-string or absent protocolVersion falls back to the latest supported revision", async () => {
+    expect(await initialize(undefined)).toBe(PROTOCOL_VERSION);
+    expect(await initialize(42)).toBe(PROTOCOL_VERSION);
+    expect(await initialize(null)).toBe(PROTOCOL_VERSION);
+  });
+
+  it("the advertised default is the newest supported revision", () => {
+    expect(SUPPORTED_PROTOCOL_VERSIONS[0]).toBe(PROTOCOL_VERSION);
+    expect(SUPPORTED_PROTOCOL_VERSIONS).toContain(PROTOCOL_VERSION);
   });
 });
