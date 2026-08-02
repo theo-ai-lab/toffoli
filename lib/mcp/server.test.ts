@@ -170,12 +170,13 @@ describe("toffoli MCP protocol-version negotiation", () => {
     const deps = makeDeps();
     const params = protocolVersion === undefined ? { capabilities: {} } : { protocolVersion, capabilities: {} };
     const resp = await handleRpcMessage(deps, { jsonrpc: "2.0", id: 1, method: "initialize", params });
-    // `resp?.result` short-circuits to undefined and was then indexed straight
-    // away, so a server that answered nothing failed as a TypeError several
-    // lines from the cause. An initialize that produces no response is a real
-    // failure of the thing under test and should say which.
-    if (!resp) throw new Error("initialize returned no response to negotiate against");
-    return (resp.result as Record<string, unknown>)["protocolVersion"];
+    // Optional all the way down rather than a chain that short-circuits and is
+    // then indexed anyway: the old `(resp?.result as ...)["protocolVersion"]`
+    // turned "the server answered nothing" into a TypeError several lines from
+    // its cause. A missing response now surfaces as an undefined version, which
+    // every caller below already asserts against.
+    const result = resp?.result as Record<string, unknown> | undefined;
+    return result?.["protocolVersion"];
   };
 
   it("answers a supported revision with that same revision", async () => {
