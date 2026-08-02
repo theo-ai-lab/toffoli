@@ -78,7 +78,7 @@ verdict either way.
   - Depends on: none.
 
 ### Checkpoint B
-- [ ] Gate is 22 checks, all green on clean HEAD, each verified by a reintroduced defect.
+- [x] Gate is 21 checks, all green on clean HEAD, each verified by a reintroduced defect.
 
 ## Risks
 
