@@ -187,6 +187,7 @@ const checks = [
   { name: "anti-fabrication: every reported restoration is journal-confirmed", pass: safe.fabricationCheck.pass, detail: safe.fabricationCheck.detail },
   { name: "the REAL on-disk world returns to baseline (not the executor's account of itself)", pass: fsReal.recoverableRestored, detail: `files=${fsReal.recoverableMatch.files} rows=${fsReal.recoverableMatch.rows} ledger=${fsReal.recoverableMatch.ledger}` },
   { name: "a fresh world over the same on-disk root replays with zero extra mutation", pass: fsReal.idempotentOnReplay, detail: "durable idempotency" },
+  { name: "the REAL world's irreversible dimensions are untouched (restraint on disk, not in memory)", pass: fsReal.irreversibleUntouched, detail: "restraint" },
   { name: "a REOPENED world recovers a SECOND round of damage (the 8897b1f precondition)", pass: fsReal.secondCycleRestored, detail: `reported=${fsReal.secondCycleReported} files=${fsReal.secondCycleMatch.files} rows=${fsReal.secondCycleMatch.rows} ledger=${fsReal.secondCycleMatch.ledger}` },
   { name: "WORLD-TRUTH DETECTOR fires when a compensation is reported but never applied", pass: worldTruthDetects, detail: worldTruthDetail },
   { name: "anti-fabrication DETECTOR fires on a lost durable write", pass: fabricationDetected, detail: fabricationDetected ? `${fabReport.restored} restoration(s) reported, all flagged unconfirmed` : "a journal that never completed a step still reported PASS" },

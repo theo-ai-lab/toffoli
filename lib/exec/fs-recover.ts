@@ -64,6 +64,11 @@ export interface FsRecoveryReport {
 }
 
 /**
+ * The env is PINNED on every safeExecute below. Reading ambient process.env made
+ * `TOFFOLI_EXECUTE_DISABLED=1 npm run gate` fail three checks with "a world that
+ * changed nothing was accepted" — the repo's own advertised kill-switch accusing the
+ * code of fabrication. Every safeExecute in lib/gate.ts already pins it.
+ *
  * Run the canonical damage→recover scenario on a real FsWorld, THROUGH the full operational-safety
  * floor (the deploy path) — not the bare saga loop. Pass `keep:true` to leave the temp dir on disk.
  */
@@ -130,7 +135,7 @@ export function fsRecoveryScenario(
     // invariant, policy, and a plan-bound confirm token authorizing this exact plan. mode:"execute"
     // because FsWorld is a real adapter — and TOFFOLI_EXECUTE_DISABLED=1 forces dry-run here too.
     const token = computeConfirmToken(plan);
-    const result = safeExecute(plan, world, { mode: "execute", confirmToken: token, policy: SANDBOX_AUTO_POLICY });
+    const result = safeExecute(plan, world, { mode: "execute", env: {} as NodeJS.ProcessEnv, confirmToken: token, policy: SANDBOX_AUTO_POLICY });
     const after = world.snapshot();
 
     const recoverableMatch = {
@@ -145,7 +150,7 @@ export function fsRecoveryScenario(
     // DURABLE IDEMPOTENCY: a brand-new FsWorld over the same on-disk root replays the plan. Because
     // the claim journal is persisted, every inverse is a skip — no double-refund, no corruption.
     const replayWorld = makeWorld(root);
-    safeExecute(plan, replayWorld, { mode: "execute", confirmToken: token, policy: SANDBOX_AUTO_POLICY });
+    safeExecute(plan, replayWorld, { mode: "execute", env: {} as NodeJS.ProcessEnv, confirmToken: token, policy: SANDBOX_AUTO_POLICY });
     const afterReplay = replayWorld.snapshot();
     const idempotentOnReplay = JSON.stringify(afterReplay) === JSON.stringify(after);
 
@@ -172,6 +177,7 @@ export function fsRecoveryScenario(
     const cycle2Plan = planResumable(cycle2Actions, cycle2Actions.map(classify));
     const cycle2Result = safeExecute(cycle2Plan, cycle2World, {
       mode: "execute",
+      env: {} as NodeJS.ProcessEnv,
       confirmToken: computeConfirmToken(cycle2Plan),
       policy: SANDBOX_AUTO_POLICY,
     });
