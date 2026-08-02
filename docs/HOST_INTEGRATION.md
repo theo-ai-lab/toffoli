@@ -15,6 +15,13 @@ time). Two environment variables matter at deploy time:
 
 - `TOFFOLI_MCP_FS_ROOT=<dir>` — back the recovery world with the real filesystem adapter
   (`FsWorld`) rooted there, instead of the in-memory sandbox.
+  **The root is a unit.** It holds the world's data *and* the two durable directories that make
+  exactly-once mean anything across a restart: `applied/` (the claim journal) and `ids/` (the
+  action-id allocations those claims are named after). Keep, back up, and delete them together —
+  dropping `ids/` while keeping `applied/` restarts the id sequence and lets a brand-new
+  compensation inherit the record of an unrelated old one. For the same reason a root created
+  before `ids/` existed has no record of the ids it already issued and must be **recreated, not
+  upgraded in place**.
 - `TOFFOLI_EXECUTE_DISABLED=1` — the kill-switch: `toffoli.recover` is forced to dry-run
   regardless of tokens or modes.
 

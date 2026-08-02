@@ -16,6 +16,12 @@
  * not serialisable — two callers compensating DIFFERENT keys at the same time can still lose a
  * ledger update. That is a known remaining gap, not a solved one.
  *
+ * Because those records are durable, the NAMES they are filed under have to be too. Every
+ * idempotency key is derived from the action id (`restitution:${action.id}:${method}`), so the
+ * action-id counter is allocated from the root as well (see `nextId`) — a counter that restarted
+ * with the process would let a brand-new compensation inherit the record of an unrelated old one and
+ * be skipped while reporting success.
+ *
  * Why it stays low-maintenance and safe to leave unattended:
  *  - Everything lives under ONE root directory you pass in (use an os.tmpdir() path). All file paths
  *    are resolved under that root and a traversal outside it throws — it cannot touch anything else.
@@ -43,6 +49,23 @@ function seg(s: string): string {
   }
   return s;
 }
+/**
+ * The highest `op<n>` this root has already handed out, or 0 for a root that has issued none. A
+ * starting HINT for `nextId`'s probe, never the authority on what is free — see `nextId`.
+ */
+function highestAllocatedId(dir: string): number {
+  let max = 0;
+  for (const name of readdirSync(dir)) {
+    const m = /^op(\d+)$/.exec(name);
+    if (m === null) continue;
+    const n = Number(m[1]);
+    // A number too large to increment exactly would make the probe loop stop advancing. Junk that
+    // big is not something this code ever wrote, so skip it rather than hang on it.
+    if (Number.isSafeInteger(n) && n > max) max = n;
+  }
+  return max;
+}
+
 /** Split a `${table}:${id}` row key on the FIRST colon (ids may contain colons). */
 function splitKey(key: string): [string, string] | null {
   const i = key.indexOf(":");
@@ -66,9 +89,13 @@ export class FsWorld implements RecoveryWorld {
   private readonly trashDir: string;
   private readonly tablesDir: string;
   private readonly outboxDir: string;
+  private readonly idsDir: string;
   private readonly ledgerPath: string;
   private readonly journal: FsJournal;
+  /** The last action number THIS handle allocated. Also the next candidate to probe — see `nextId`. */
   private seq = 0;
+  /** Whether `seq` has been raised to the root's durable high-water mark yet (a hint; see `nextId`). */
+  private seqFloorRead = false;
   private tmpSeq = 0;
 
   constructor(root: string, opts: FsWorldOptions = {}) {
@@ -78,8 +105,9 @@ export class FsWorld implements RecoveryWorld {
     this.trashDir = join(this.root, "trash", "rows");
     this.tablesDir = join(this.root, "tables");
     this.outboxDir = join(this.root, "outbox");
+    this.idsDir = join(this.root, "ids");
     this.ledgerPath = join(this.root, "ledger.json");
-    for (const d of [this.filesDir, this.rowsDir, this.trashDir, this.tablesDir, this.outboxDir]) {
+    for (const d of [this.filesDir, this.rowsDir, this.trashDir, this.tablesDir, this.outboxDir, this.idsDir]) {
       mkdirSync(d, { recursive: true });
     }
     // The journal owns `applied/` — same directory the marker scheme used, now holding durable
@@ -122,13 +150,62 @@ export class FsWorld implements RecoveryWorld {
     return join(trash ? this.trashDir : this.rowsDir, seg(table), `${seg(id)}.json`);
   }
 
+  /**
+   * Allocate the next action number FROM THE ROOT, not from this process.
+   *
+   * THE CONTRACT: an action id handed out for a root is never handed out again for that root, for as
+   * long as the root's `ids/` and `applied/` directories live together. That is what the durable
+   * journal needs, because every idempotency key is derived from the action id and the records are
+   * durable: an id that repeats after a reopen makes a compensation that has NEVER run look like a
+   * replay of one that has, so `once()` skips the effect and returns `true` — a restoration reported
+   * for a row still in the trash, a refund reported for money still taken. (`replaySafe:false` is no
+   * defence: an `applied` record is answered before the indeterminate check is reached.)
+   *
+   * HOW: the id IS its own durable record. `op<n>` is allocated by exclusive-creating the file
+   * `ids/op<n>`; on EEXIST the number is already spoken for and we walk forward. This is the same
+   * primitive as the journal's claim — one syscall, no check-then-use — so two live handles on one
+   * root cannot take the same number either.
+   *
+   * CRASH SEMANTICS, deliberately: the file is empty and its NAME carries the whole fact, so there
+   * is no torn write to recover from — `wx` either creates the directory entry or it does not. A
+   * crash between allocating an id and using it LEAKS that id (the sequence skips a number) and can
+   * never reuse it, which is the safe direction: a leaked number costs nothing, a reused one
+   * fabricates a compensation. Same scope caveat as the journal (lib/exec/fs-journal.ts): no fsync,
+   * so this is crash-safe against process death, not against machine power loss.
+   *
+   * SCOPE: this guarantees uniqueness for the life of a root created by this version. A root written
+   * by an earlier one has no `ids/` directory and therefore no record of the ids it already issued,
+   * so its counter restarts from zero — such a root must be recreated, not upgraded in place.
+   */
   private nextId(): string {
-    this.seq += 1;
-    return `op${this.seq}`;
+    // First allocation on this handle: start from the root's high-water mark instead of re-probing
+    // every number it has ever issued. A HINT only — the exclusive create below is the authority, so
+    // a stale or racing hint costs extra probes, never uniqueness.
+    if (!this.seqFloorRead) {
+      this.seq = Math.max(this.seq, highestAllocatedId(this.idsDir));
+      this.seqFloorRead = true;
+    }
+    for (;;) {
+      const n = this.seq + 1;
+      const id = `op${n}`;
+      try {
+        writeFileSync(join(this.idsDir, id), "", { flag: "wx" }); // THE ATOMIC ALLOCATION
+        this.seq = n;
+        return id;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
+          throw new Error(`could not allocate an action id under ${this.idsDir}: ${(err as Error).message}`, { cause: err });
+        }
+        this.seq = n; // taken by an earlier process or a live peer — walk forward
+      }
+    }
   }
   private stamp(): string {
-    // deterministic monotonic timestamp (no Date.now — keeps runs reproducible, like World)
-    return `2026-06-06T09:${String(this.seq).padStart(2, "0")}:00Z`;
+    // Deterministic monotonic timestamp (no Date.now — keeps runs reproducible, like World). Carried
+    // into hours rather than padded into the minute field: the sequence is durable now, so it passes
+    // 59 on a long-lived root, and `09:100` sorts BEFORE `09:99` — which would silently reorder the
+    // plan, since LIFO compensation order is a string sort on `at` (lib/engine/plan.ts).
+    return new Date(Date.UTC(2026, 5, 6, 9, 0, 0) + this.seq * 60_000).toISOString().replace(/\.\d{3}Z$/, "Z");
   }
   private readLedger(): number {
     if (!existsSync(this.ledgerPath)) return 0; // legitimately absent → $0
