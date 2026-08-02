@@ -202,7 +202,11 @@ each control is crosswalked to its primary source in [`SAFETY.md`](SAFETY.md):
 - an **enforced kill-switch** at a single mutation chokepoint, and **plan-only by default** behind a
   plan-bound confirm token;
 - a **write-ahead journal** whose anti-fabrication invariant means no action is reported undone unless
-  the durable log confirms it (the Replit failure mode, designed against);
+  the durable log confirms it (the Replit failure mode, designed against). That check compares the
+  executor's report against the executor's own journal — one witness asked twice — so the gate
+  *additionally* runs the real on-disk scenario and diffs the actual files, rows and ledger against
+  the pre-damage baseline, with a negative control that reports success while touching nothing
+  ([ADR-001](docs/decisions/ADR-001-world-truth-in-the-gate.md));
 - a **two-axis auto-execute policy** (reversibility class × confidence + a default-deny allowlist; the
   judge may only *lower* autonomy, never grant it), **bounded transient-only retries + per-backend
   circuit breakers**, and **escalation as a durable path** — a failed compensation is a first-class
