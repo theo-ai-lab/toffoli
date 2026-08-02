@@ -52,6 +52,12 @@ export interface FsRecoveryReport {
   recoverableMatch: { files: boolean; rows: boolean; ledger: boolean };
   recoverableRestored: boolean;
   irreversibleUntouched: boolean;
+  /** Per-dimension result of the SECOND damage->recover cycle over the same root. */
+  secondCycleMatch: { files: boolean; rows: boolean; ledger: boolean };
+  /** Did a REOPENED world recover a second, different set of damage? (8897b1f's precondition.) */
+  secondCycleRestored: boolean;
+  /** How many restorations the second cycle REPORTED, regardless of what the disk did. */
+  secondCycleReported: number;
   /** A fresh FsWorld over the same root replayed the plan with zero additional mutation. */
   idempotentOnReplay: boolean;
   totals: { actions: number; recoverable: number; irreversible: number; restored: number };
@@ -143,6 +149,41 @@ export function fsRecoveryScenario(
     const afterReplay = replayWorld.snapshot();
     const idempotentOnReplay = JSON.stringify(afterReplay) === JSON.stringify(after);
 
+    // SECOND CYCLE over the SAME on-disk root — the precondition 8897b1f actually needs.
+    //
+    // Everything above damages once. The replay reuses the SAME plan object with the same
+    // action ids, so the id allocator is never called a second time and the defect this
+    // scenario was built to catch is structurally invisible: an adversarial review reverted
+    // nextId() to the ephemeral counter and the whole gate still passed 19/19 while the unit
+    // suite failed 7 of 16. A gate that cannot fail for its own motivating defect is a gate
+    // that says less than it sounds like.
+    //
+    // A reopened world damaging a fresh set of actions is what forces new ids against the
+    // durable applied/ markers. With an instance-local counter the second cycle's ids collide
+    // with the first's, every compensation short-circuits as already-applied, and the world
+    // does NOT return to baseline — while the executor still reports restorations.
+    const cycle2World = makeWorld(root);
+    const cycle2Baseline = cycle2World.snapshot();
+    const cycle2Actions: AgentAction[] = [
+      cycle2World.writeFile("/backups/orders-2.bak", "id,is_test"),
+      cycle2World.softDeleteRow("orders", "t1"),
+      cycle2World.charge("enrich-api", 7),
+    ];
+    const cycle2Plan = planResumable(cycle2Actions, cycle2Actions.map(classify));
+    const cycle2Result = safeExecute(cycle2Plan, cycle2World, {
+      mode: "execute",
+      confirmToken: computeConfirmToken(cycle2Plan),
+      policy: SANDBOX_AUTO_POLICY,
+    });
+    const afterCycle2 = cycle2World.snapshot();
+    const secondCycleMatch = {
+      files: sameRecord(afterCycle2.files, cycle2Baseline.files),
+      rows: sameRecord(afterCycle2.rows, cycle2Baseline.rows),
+      ledger: afterCycle2.ledgerUsd === cycle2Baseline.ledgerUsd,
+    };
+    const secondCycleRestored =
+      secondCycleMatch.files && secondCycleMatch.rows && secondCycleMatch.ledger;
+
     return {
       root,
       result,
@@ -150,6 +191,9 @@ export function fsRecoveryScenario(
       recoverableRestored,
       irreversibleUntouched,
       idempotentOnReplay,
+      secondCycleMatch,
+      secondCycleRestored,
+      secondCycleReported: cycle2Result.restored,
       totals: {
         actions: actions.length,
         recoverable: classifications.filter((c) => c.class === "REVERSIBLE" || c.class === "COMPENSABLE").length,

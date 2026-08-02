@@ -23,7 +23,7 @@ a reopened root produced a compensation that was reported, journal-confirmed, an
 applied.
 
 The gate could not have caught it. It ran `recoveryScenario` (the in-memory world) and
-called `fsRecoveryScenario` **zero times**, so the real filesystem and sqlite adapters —
+called `fsRecoveryScenario` **zero times**, so the real filesystem adapter —
 precisely where that class of bug lives — sat outside the thing that decides whether
 this ships.
 
@@ -32,13 +32,20 @@ this ships.
 The gate runs the **real on-disk scenario** and compares the world before and after,
 plus a negative control proving the comparison can fail.
 
-Three checks added (16 → 19):
+Four checks added (16 → 20):
 
 1. `the REAL on-disk world returns to baseline (not the executor's account of itself)` —
    files, rows and ledger diffed against the pre-damage baseline.
 2. `a fresh world over the same on-disk root replays with zero extra mutation` — durable
    idempotency.
-3. `WORLD-TRUTH DETECTOR fires when a compensation is reported but never applied` — a
+3. `a REOPENED world recovers a SECOND round of damage` — the precondition 8897b1f
+   actually needs. Added 2026-08-02 after an adversarial review reverted `nextId()` to
+   the ephemeral counter and the gate still passed 19/19 while the unit suite failed
+   7 of 16. The original three checks damaged the world ONCE and replayed the SAME plan
+   object, so the id allocator was never called twice and the motivating defect was
+   structurally invisible. Verified both ways: with the defect reintroduced the gate now
+   reports `reported=3 files=false rows=false` and FAILS.
+4. `WORLD-TRUTH DETECTOR fires when a compensation is reported but never applied` — a
    world that returns success from every compensating method and touches nothing. Its
    executor account is spotless and its journal agrees; only the disk dissents.
 
@@ -81,10 +88,17 @@ detector that only lied on the first pass would be a weaker control.
 
 ## Consequences
 
-- The gate now touches a real filesystem and sqlite database, so it is slower and needs
-  a writable temp dir. Measured cost is small next to what it covers.
-- `npm run gate:mutate` reports the new checks among the catchers for
-  `classifier-forced-to-irreversible`, so they are load-bearing rather than decorative.
+- The gate now touches a real filesystem, so it is slower and needs a writable temp dir. Measured cost is small next to what it covers.
+- **CORRECTION (2026-08-02, adversarial review).** This ADR previously claimed
+  `gate:mutate` showed the new checks were load-bearing. That was wrong on two counts:
+  only 2 of the 3 appear as catchers, and they appear for reasons unrelated to world
+  truth (`kill-switch-branch-inverted` makes the whole run dry-run;
+  `classifier-forced-to-irreversible` empties the plan). `gate-mutate.ts` contains **zero**
+  mutations touching `fs-recover.ts`, `fs-world.ts` or `fs-journal.ts`. Adding them is
+  open work.
+- **CORRECTION.** The gate touches a real filesystem only. This ADR and `gate.ts`
+  previously said "and sqlite database"; `SqlWorld` — which had the identical
+  id-allocation defect, fixed in `422b37d` — is **not** in the gate at all.
 - Coverage moved 76.29 → 76.05 against a floor of 76, because the new gate code is real
   `lib/` surface that vitest never executes. The floor was **not** lowered and
   `gate.ts` was **not** excluded — the vitest config's own rule is that an untested
