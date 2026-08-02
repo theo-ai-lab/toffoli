@@ -12,8 +12,9 @@
  */
 
 import { execSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
 import * as os from "node:os";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadGoldSet } from "../dataset/schema";
 import { evaluate } from "./engine/metrics";
@@ -21,6 +22,8 @@ import { classifyDeterministic } from "./engine/classify";
 import type { AgentAction, Classification, CompensatingAction } from "./engine/types";
 import { lakeOnPath, leanMissingHint } from "./lean-toolchain";
 import { recoveryScenario, buildRecoveryCase } from "./exec/recover";
+import { fsRecoveryScenario } from "./exec/fs-recover";
+import { FsWorld } from "./exec/fs-world";
 import { safeExecute, computeConfirmToken } from "./runtime/safe-executor";
 import { InMemoryJournal } from "./runtime/journal";
 import { DEFAULT_AUTO_POLICY, SANDBOX_AUTO_POLICY, decideAuto } from "./runtime/policy";
@@ -72,6 +75,42 @@ const fabReport = safeExecute(fabCase.plan, fabCase.world, {
   journal: new AmnesicJournal(),
 });
 const fabricationDetected = fabReport.restored > 0 && !fabReport.fabricationCheck.pass;
+
+// 4b. REAL-WORLD TRUTH. Every check above this line asks the EXECUTOR about itself: `restored` is
+//     its own count, and `fabricationCheck` compares that count against the journal the same
+//     executor wrote. One witness, asked twice. An executor whose action ids or idempotency keys
+//     are wrong reports a restoration, records it, and never moves the disk — which is precisely
+//     what 8897b1f fixed in FsWorld. This gate could not have caught it: it ran the in-memory
+//     world only, so the real adapters were outside the thing that decides whether this ships.
+const fsReal = fsRecoveryScenario();
+
+// 4c. DETECTOR for 4b: a world that returns success from every compensating method and touches
+//     nothing. The executor's account is spotless and its journal agrees; only the before/after
+//     comparison of the actual filesystem and database dissents. If the world comparison ever
+//     degenerates into another reading of the executor's own report, this is what fails.
+class LyingFsWorld extends FsWorld {
+  override deleteFile(): boolean {
+    return true;
+  }
+  override restoreRow(): boolean {
+    return true;
+  }
+  override refund(): boolean {
+    return true;
+  }
+}
+const lyingRoot = mkdtempSync(join(os.tmpdir(), "toffoli-gate-lying-"));
+let worldTruthDetects = false;
+let worldTruthDetail = "";
+try {
+  const lying = fsRecoveryScenario({ root: lyingRoot, makeWorld: (r) => new LyingFsWorld(r) });
+  worldTruthDetects = lying.result.restored > 0 && lying.result.fabricationCheck.pass && !lying.recoverableRestored;
+  worldTruthDetail = worldTruthDetects
+    ? `${lying.result.restored} restoration(s) reported and journal-confirmed; the disk says otherwise`
+    : `a world that changed nothing was accepted (restored=${lying.result.restored}, fabricationPass=${lying.result.fabricationCheck.pass}, worldRestored=${lying.recoverableRestored})`;
+} finally {
+  rmSync(lyingRoot, { recursive: true, force: true });
+}
 
 // 5. The confirm token is BOUND TO THE PLAN: a token computed for a different plan with the same
 //    step COUNT must not authorize this one. (Same count is the point — a token that only hashed
@@ -158,6 +197,9 @@ const checks = [
   { name: "plan-only by default mutates nothing", pass: planOnlyInert, detail: "no token, no autoConfirm → zero mutation" },
   { name: "safe path restores parity with the bare executor", pass: safeParity, detail: `restored=${safe.restored}/${execCase.plan.steps.length}` },
   { name: "anti-fabrication: every reported restoration is journal-confirmed", pass: safe.fabricationCheck.pass, detail: safe.fabricationCheck.detail },
+  { name: "the REAL on-disk world returns to baseline (not the executor's account of itself)", pass: fsReal.recoverableRestored, detail: `files=${fsReal.recoverableMatch.files} rows=${fsReal.recoverableMatch.rows} ledger=${fsReal.recoverableMatch.ledger}` },
+  { name: "a fresh world over the same on-disk root replays with zero extra mutation", pass: fsReal.idempotentOnReplay, detail: "durable idempotency" },
+  { name: "WORLD-TRUTH DETECTOR fires when a compensation is reported but never applied", pass: worldTruthDetects, detail: worldTruthDetail },
   { name: "anti-fabrication DETECTOR fires on a lost durable write", pass: fabricationDetected, detail: fabricationDetected ? `${fabReport.restored} restoration(s) reported, all flagged unconfirmed` : "a journal that never completed a step still reported PASS" },
   { name: "a confirm token bound to a DIFFERENT plan is refused", pass: staleTokenRefused, detail: staleTokenRefused ? `phase=${staleReport.phase}; world unchanged` : `phase=${staleReport.phase}; a foreign token authorized this plan` },
   { name: "the judge can lower autonomy, never grant it", pass: judgeCannotGrantAutonomy, detail: judgeCannotGrantAutonomy ? "llmAssisted verdict blocked; the same verdict un-judged is auto-eligible" : "an llmAssisted verdict earned auto-execution" },

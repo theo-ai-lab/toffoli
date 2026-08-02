@@ -61,10 +61,25 @@ export interface FsRecoveryReport {
  * Run the canonical damage→recover scenario on a real FsWorld, THROUGH the full operational-safety
  * floor (the deploy path) — not the bare saga loop. Pass `keep:true` to leave the temp dir on disk.
  */
-export function fsRecoveryScenario(opts: { root?: string; keep?: boolean } = {}): FsRecoveryReport {
+export function fsRecoveryScenario(
+  opts: {
+    root?: string;
+    keep?: boolean;
+    /**
+     * Build the world under test. Injected so the gate can run a NEGATIVE CONTROL: a world that
+     * reports every compensation as a success and touches nothing. The executor and its journal
+     * agree in that case, so only the before/after disk comparison below can tell — which is the
+     * whole reason this scenario exists rather than trusting `fabricationCheck`.
+     *
+     * A factory, not an instance: the replay pass builds a second world over the same root.
+     */
+    makeWorld?: (root: string) => FsWorld;
+  } = {},
+): FsRecoveryReport {
   const root = opts.root ?? mkdtempSync(join(tmpdir(), "toffoli-fs-"));
+  const makeWorld = opts.makeWorld ?? ((r: string) => new FsWorld(r));
   try {
-    const world = new FsWorld(root);
+    const world = makeWorld(root);
     world.seedRow("orders", "t1", { is_test: true });
     world.seedRow("orders", "t2", { is_test: true });
     world.seedTable("orders_archive");
@@ -101,7 +116,7 @@ export function fsRecoveryScenario(opts: { root?: string; keep?: boolean } = {})
 
     // DURABLE IDEMPOTENCY: a brand-new FsWorld over the same on-disk root replays the plan. Because
     // the claim journal is persisted, every inverse is a skip — no double-refund, no corruption.
-    const replayWorld = new FsWorld(root);
+    const replayWorld = makeWorld(root);
     safeExecute(plan, replayWorld, { mode: "execute", confirmToken: token, policy: SANDBOX_AUTO_POLICY });
     const afterReplay = replayWorld.snapshot();
     const idempotentOnReplay = JSON.stringify(afterReplay) === JSON.stringify(after);
