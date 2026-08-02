@@ -22,9 +22,14 @@
  *     self-idempotent inverse (delete/restore) is REDONE; for one that is not (refund) it is raised
  *     as `indeterminate` — loud, typed, and routed to the saga's failure path. Never silently
  *     "restored", and never a second charge on someone's card.
- *   - A claim may only be released by the caller that created it, so one caller's failure cannot
- *     erase another's idempotency record (observed in the race probe: a successful refund whose
- *     marker count ended at zero).
+ *   - Releasing a claim is a COMPARE-AND-DELETE, not a delete. Dropping a claim is the one operation
+ *     that destroys durable state, so it is gated on the record still BEING that claim: same writer,
+ *     same attempt, still `pending`. "I created this key once" is not the same fact and is not
+ *     enough — a replay-safe peer that redoes a pending claim writes its own `applied` record over
+ *     it, and a delete keyed on the weaker fact erases someone else's proof that the compensation
+ *     happened. Reproduced with real processes on the production path: 4 of 1800 raced keys ended
+ *     with the row restored on disk and no record of it, which downstream turns a COMPLETED
+ *     compensation into a `failed` step and blocks the rest of the saga.
  *
  * Scope of the durability claim, so it is not read as more than it is: records are written with
  * writeFileSync and replaced with rename, and neither is followed by fsync. That makes the journal
@@ -32,12 +37,16 @@
  * killed or restarted agent actually does — but NOT against machine power loss, where a returned
  * write can still be lost from the page cache. Nor is there a lease: a `pending` record left by a
  * live concurrent caller is indistinguishable from one left by a dead one, so a non-replay-safe key
- * held by a slow caller escalates rather than waits. Both are remainders, not solved problems.
+ * held by a slow caller escalates rather than waits. The compare-and-delete is likewise not atomic:
+ * POSIX has no "unlink only if the contents still match", so a peer that completes an entire redo
+ * cycle between the compare and the unlink can still lose its record. That is a single-syscall
+ * window instead of an unconditional delete, and closing it completely needs the lease/fencing
+ * machinery this slice deliberately does not build. All three are remainders, not solved problems.
  *
  * Zero runtime dependencies (node:fs / node:path / node:crypto only).
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -78,6 +87,29 @@ export interface JournalRecord {
   readonly replaySafe: boolean;
   readonly status: RecordStatus;
   /** 1 on the first claim; incremented each time an unresolved claim is redone. */
+  readonly attempt: number;
+  /**
+   * Identity of the journal instance that wrote THIS state of the record — the writer, not the
+   * original claimant. It is what makes releasing a claim a compare-and-delete: a caller may only
+   * drop a record that is still its own unresolved claim, so a peer's resolution cannot be erased.
+   * Empty string for a legacy zero-byte marker, whose writer is unknowable.
+   */
+  readonly owner: string;
+}
+
+/**
+ * Unforgeable proof that this instance created the record currently at `path` and has not resolved
+ * it. Minted ONLY on the exclusive-create branch of a claim — the brand is module-private, so no
+ * caller anywhere can construct one, and `release` takes nothing else. There is no boolean to pass
+ * wrongly and no key/path pair to mismatch: holding the ticket IS the permission, and losing the
+ * claim means there is no ticket to hold.
+ */
+const CLAIM_TICKET: unique symbol = Symbol("toffoli.journal.claim");
+interface ClaimTicket {
+  readonly [CLAIM_TICKET]: true;
+  readonly key: string;
+  readonly path: string;
+  readonly owner: string;
   readonly attempt: number;
 }
 
@@ -129,9 +161,12 @@ const MAX_KEY_LENGTH = 1024;
 
 export class FsJournal {
   readonly dir: string;
+  /**
+   * This instance's identity, stamped into every record it writes. Fresh per instance — a restarted
+   * process is a DIFFERENT owner, which is correct: it holds none of the previous process's claims.
+   */
+  readonly owner: string = `${process.pid}.${randomUUID()}`;
   private readonly chaos: ChaosSchedule | undefined;
-  /** Keys THIS instance created a claim for — the only claims it is allowed to release. */
-  private readonly created = new Set<string>();
   private tmpSeq = 0;
 
   constructor(dir: string, opts: FsJournalOptions = {}) {
@@ -155,14 +190,14 @@ export class FsJournal {
     this.chaos?.arrive("before-claim", key);
 
     let attempt = 1;
-    const claim: JournalRecord = { key, method, replaySafe, status: "pending", attempt };
-    let owned = false;
+    const claim: JournalRecord = { key, method, replaySafe, status: "pending", attempt, owner: this.owner };
+    /** Present only while THIS instance holds an unresolved claim. No ticket, no release. */
+    let ticket: ClaimTicket | undefined;
     try {
       // THE ATOMIC CLAIM. `wx` is exclusive-create: it succeeds for exactly one caller and fails
       // with EEXIST for every other, in a single syscall. No check, therefore no check-then-use.
       writeFileSync(path, serialize(claim), { flag: "wx" });
-      owned = true;
-      this.created.add(key);
+      ticket = { [CLAIM_TICKET]: true, key, path, owner: this.owner, attempt };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
         throw new JournalError("io", `could not claim ${JSON.stringify(key)}: ${(err as Error).message}`, { key, cause: err });
@@ -181,9 +216,11 @@ export class FsJournal {
           { key, record: prior },
         );
       }
-      // Replay-safe: REDO the effect. Bump the attempt so a recovery pass can see the retry.
+      // Replay-safe: REDO the effect. Bump the attempt so a recovery pass can see the retry. This
+      // is NOT a claim — the original claimant may still be live, so no ticket is minted and this
+      // caller never deletes the record; an unresolved redo stays visible to `unresolved()`.
       attempt = prior.attempt + 1;
-      this.write(path, { ...prior, attempt });
+      this.write(path, { ...prior, attempt, owner: this.owner });
     }
 
     this.chaos?.arrive("after-claim", key);
@@ -192,18 +229,18 @@ export class FsJournal {
     try {
       ok = effect();
     } catch (err) {
-      this.release(key, path, owned);
+      if (ticket) this.release(ticket);
       throw err;
     }
 
     this.chaos?.arrive("before-resolve", key);
 
     if (!ok) {
-      this.release(key, path, owned);
+      if (ticket) this.release(ticket);
       this.chaos?.arrive("after-resolve", key); // releasing IS the resolution — a crash can land after it too
       return { status: "noop" };
     }
-    this.write(path, { key, method, replaySafe, status: "applied", attempt });
+    this.write(path, { key, method, replaySafe, status: "applied", attempt, owner: this.owner });
 
     this.chaos?.arrive("after-resolve", key);
     return { status: "applied", attempt };
@@ -247,7 +284,7 @@ export class FsJournal {
     const raw = readFileSync(path, "utf8");
     // A zero-byte file is what the pre-journal marker scheme wrote. Treat it as an applied record so
     // upgrading the code cannot cause an old root to be compensated a second time.
-    if (raw.length === 0) return { key, method: "?", replaySafe: false, status: "applied", attempt: 1 };
+    if (raw.length === 0) return { key, method: "?", replaySafe: false, status: "applied", attempt: 1, owner: "" };
     try {
       return JSON.parse(raw) as JournalRecord;
     } catch (err) {
@@ -264,11 +301,28 @@ export class FsJournal {
     renameSync(tmp, path);
   }
 
-  /** Drop a claim so a later attempt can retry — but ONLY one this instance created. */
-  private release(key: string, path: string, owned: boolean): void {
-    if (!owned || !this.created.has(key)) return; // never erase another caller's idempotency record
-    rmSync(path, { force: true });
-    this.created.delete(key);
+  /**
+   * COMPARE-AND-DELETE. Drop the claim so a later attempt can retry — but only if the record on disk
+   * is STILL that claim: written by this instance, same attempt, still unresolved.
+   *
+   * Holding the ticket is not sufficient on its own, and that is the whole point. Between the claim
+   * and this call a replay-safe peer can have redone the effect and written its own `applied` record
+   * over the pending one; deleting on the strength of "I claimed this key once" would erase a
+   * completed compensation's only durable proof. Anything that is not verifiably still ours — a
+   * peer's record, a bumped redo attempt, a missing or unreadable file — is left exactly where it is.
+   *
+   * Non-throwing by construction: this runs on the effect-threw path, where raising would mask the
+   * caller's original error, and no failure to read can justify destroying a record.
+   */
+  private release(ticket: ClaimTicket): void {
+    let current: JournalRecord;
+    try {
+      current = this.read(ticket.key, ticket.path);
+    } catch {
+      return; // gone, or unreadable — never delete what cannot be positively identified as ours
+    }
+    if (current.status !== "pending" || current.owner !== ticket.owner || current.attempt !== ticket.attempt) return;
+    rmSync(ticket.path, { force: true });
   }
 }
 

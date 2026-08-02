@@ -89,7 +89,8 @@ syscall. There is no window between check and use because there is no check.
 `EEXIST` is the loser's signal, and the loser reads the winner's record.
 
 Ownership is tracked per instance: a claim may only be released by the caller
-that acquired it (defect 3a).
+that acquired it (defect 3a). *(Superseded by §7 — that fact turned out to be
+too weak. Releasing is now a compare-and-delete against the record on disk.)*
 
 ### The chaos seam
 
@@ -188,3 +189,57 @@ files — which the `include: ["lib/**/*.ts"]` denominator counts in full. Closi
 it is a separate piece of work, and the repo's own rule in vitest.config.ts
 ("Raise them as tests grow; never lower silently") says the fix is tests, not a
 lowered floor. Recorded rather than quietly patched around.
+
+## 7. Follow-on defect — 3d. Release deletes a peer's resolution
+
+Found after the slice landed, verified by execution before any design.
+
+The §2 ownership rule tracked the wrong fact. `created` recorded *"this instance
+made the original claim for this key"*, which is not the same as *"the record on
+disk is still my unresolved claim"*. A replay-safe peer that finds a `pending`
+record REDOES the effect and writes its own `applied` record over it. If the
+original claimant's own effect then no-ops or throws, its `release` deleted that
+`applied` record — a completed compensation's only durable proof.
+
+Reproduced with real OS processes on the production path
+(`executor.dispatchInverse` → `FsWorld.restoreRow` → `runOnce`), four processes
+sharing one root, 300 idempotency keys each, no chaos hook and no test seam:
+
+```
+[LOST] trial 1 key "restitution:op153:restore": restored by ["P2"], row back on disk=true, journal records=[] :: REPLAY BY A RECOVERY PASS -> failed (restored orders:o153 (no-op / not found))
+RESULT: 4 / 1800 raced keys LOST a durable 'applied' record (N=4 racers, 300 keys x 6 trials)
+```
+
+The downstream consequence is measured in the same line: with the record gone,
+the next `runOnce` claims afresh, the effect finds nothing to do, `noop` becomes
+`false` at `fs-world.ts:101`, and `executor.ts:58-61` records a resume point and
+blocks every remaining compensation. **A completed compensation is reported as
+failed and the saga halts.**
+
+### Fix
+
+`release` takes an unforgeable `ClaimTicket` — minted only on the exclusive-create
+branch, branded with a module-private symbol — and performs a COMPARE-AND-DELETE:
+it unlinks only if the record on disk is still `pending`, still written by this
+instance (`owner`), and still the same `attempt`. Records now carry `owner`, the
+identity of whichever instance wrote that state. The `owned: boolean` parameter
+and the `created` Set are gone: a caller that lost the claim has no ticket, so
+there is no argument it can get wrong.
+
+Deliberately NOT built, per §1's non-goals: no lease, no lock file, no fencing
+token. Consequently the compare-and-delete is not atomic — POSIX has no "unlink
+only if contents match" — so a peer that completes an entire redo cycle inside
+the single-syscall gap between the compare and the unlink can still lose its
+record. That is stated in `fs-journal.ts`'s header rather than papered over.
+
+### Verification
+
+- Same probe, same parameters, after the fix: `RESULT: 0 / 1800`.
+- New seeded property over the interleaving space of claim/effect/release
+  (both pending windows × peer applies/no-ops × this caller releasing by
+  returning false or by throwing × both replay-safety declarations × arbitrary
+  keys): *an `applied` record is never destroyed by a process that did not write
+  it*, plus the converse clause that a caller's own untouched claim IS still
+  released, so "never delete" cannot pass trivially.
+- Each of the three conjuncts in the compare is individually mutation-verified:
+  dropping `status`, `owner` or `attempt` each turns exactly one test red.

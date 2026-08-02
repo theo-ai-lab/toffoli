@@ -11,10 +11,10 @@
 
 import { describe, it, expect, afterEach } from "vitest";
 import fc from "fast-check";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FsJournal, JournalError, JOURNAL_POINTS, type JournalPoint, type OnceOutcome } from "./fs-journal";
+import { FsJournal, JournalError, JOURNAL_POINTS, type JournalPoint, type JournalRecord, type OnceOutcome } from "./fs-journal";
 import { crashAt, interleaveAt, SimulatedCrash } from "./chaos";
 
 const dirs: string[] = [];
@@ -140,8 +140,9 @@ describe("FsJournal — crash at every point in the kill-point space", () => {
     const dir = freshDir();
     const intent = { key: "pay-2", method: "refund", replaySafe: false };
     let refunds = 0;
+    const crashed = new FsJournal(dir, { chaos: crashAt("before-resolve") });
     expect(() =>
-      new FsJournal(dir, { chaos: crashAt("before-resolve") }).runOnce(intent, () => {
+      crashed.runOnce(intent, () => {
         refunds += 1;
         return true;
       }),
@@ -149,7 +150,7 @@ describe("FsJournal — crash at every point in the kill-point space", () => {
     expect(refunds).toBe(1); // the money DID move
 
     const pending = new FsJournal(dir).unresolved();
-    expect(pending).toEqual([{ key: "pay-2", method: "refund", replaySafe: false, status: "pending", attempt: 1 }]);
+    expect(pending).toEqual([{ key: "pay-2", method: "refund", replaySafe: false, status: "pending", attempt: 1, owner: crashed.owner }]);
     // and recovery must not refund a second time to "make sure"
     expect(() => new FsJournal(dir).runOnce(intent, () => { refunds += 1; return true; })).toThrow(JournalError);
     expect(refunds).toBe(1);
@@ -241,7 +242,191 @@ describe("FsJournal — a concurrent caller in the claim window (the TOCTOU)", (
 
     loser.runOnce(intent, () => false);
 
-    expect(winner.lookup("pay-1")).toEqual({ key: "pay-1", method: "delete", replaySafe: true, status: "applied", attempt: 1 });
+    expect(winner.lookup("pay-1")).toEqual({ key: "pay-1", method: "delete", replaySafe: true, status: "applied", attempt: 1, owner: winner.owner });
+  });
+});
+
+/**
+ * The two labelled points at which THIS caller's own claim is already durable on disk but not yet
+ * resolved. A peer that lands here — unlike one that lands at `before-claim` — does NOT run to
+ * completion before this caller starts; it runs while this caller still holds an unresolved claim,
+ * and this caller then reaches `release()` with the peer's outcome already on disk. That is the
+ * window the `before-claim` tests above cannot reach.
+ */
+const PENDING_WINDOWS = ["after-claim", "before-resolve"] as const;
+
+describe("FsJournal — a peer inside the window where this caller's claim is still PENDING", () => {
+  /**
+   * THE INVARIANT: an `applied` record is NEVER destroyed by a process that did not write it.
+   *
+   * Generated over the whole interleaving space of claim/effect/release rather than three examples:
+   * both pending windows × the peer applying or no-opping × this caller reaching release by
+   * returning false or by throwing × both replay-safety declarations × arbitrary keys. Seeded and
+   * placed at exact labelled points, so it is reproducible and can never flake.
+   *
+   * Two clauses, and the second is what stops "never delete anything" from passing trivially:
+   *   1. NO CROSS-CALLER DESTRUCTION — a durable record this caller did not write survives it.
+   *   2. RELEASE STILL RELEASES — this caller's OWN untouched claim is still dropped, so a later
+   *      legitimate attempt can run.
+   */
+  it("never destroys a record it did not write, anywhere in the interleaving space", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...PENDING_WINDOWS),
+        fc.boolean(),
+        fc.boolean(),
+        fc.boolean(),
+        fc.string({ minLength: 1, maxLength: 40 }),
+        (window: JournalPoint, peerApplies: boolean, endsWithThrow: boolean, replaySafe: boolean, key: string) => {
+          const dir = freshDir();
+          const intent = { key, method: replaySafe ? "delete" : "refund", replaySafe };
+
+          /** What was durable at the instant the peer finished — read by a THIRD instance, from disk. */
+          let observed: JournalRecord | undefined;
+
+          const peer = new FsJournal(dir);
+          const mine = new FsJournal(dir, {
+            chaos: interleaveAt(window, () => {
+              attempt(() => peer.runOnce(intent, () => peerApplies)); // a second process, in my window
+              observed = new FsJournal(dir).lookup(key);
+            }),
+          });
+
+          attempt(() =>
+            mine.runOnce(intent, () => {
+              if (endsWithThrow) throw new Error("backend down");
+              return false; // a no-op — the other way this caller reaches release()
+            }),
+          );
+
+          const final = new FsJournal(dir).lookup(key);
+
+          if (observed?.status === "applied") {
+            // (1) the peer's durable proof that the compensation HAPPENED
+            expect(final, "an applied record was destroyed by a caller that did not write it").toBeDefined();
+            expect(final?.status).toBe("applied");
+            expect(final?.owner).toBe(observed.owner);
+          } else if (observed === undefined || (observed.owner === mine.owner && observed.attempt === 1)) {
+            // (2) nothing but my own claim is on disk (or the peer never got to run) — release it
+            expect(final, "this caller's own unresolved claim was not released").toBeUndefined();
+          } else {
+            // the peer left its own unresolved claim (a bumped redo attempt). Also not mine to delete.
+            expect(final, "a peer's unresolved claim was destroyed by another caller").toBeDefined();
+            expect(final?.owner).toBe(observed.owner);
+            expect(final?.attempt).toBe(observed.attempt);
+          }
+        },
+      ),
+      { seed: 20260801, numRuns: 300 },
+    );
+  });
+
+  it("the concrete case: a peer's completed compensation survives this caller's failure", () => {
+    const dir = freshDir();
+    const intent = { key: "restitution:op1:delete", method: "delete", replaySafe: true };
+    const peer = new FsJournal(dir);
+    // I claim; the peer lands in my window, redoes the effect and durably records it APPLIED; my own
+    // effect then finds nothing left to do and I release. The peer's record must still be there.
+    const mine = new FsJournal(dir, { chaos: interleaveAt("after-claim", () => void peer.runOnce(intent, () => true)) });
+
+    expect(mine.runOnce(intent, () => false)).toEqual({ status: "noop" });
+
+    expect(new FsJournal(dir).lookup("restitution:op1:delete")).toEqual({
+      key: "restitution:op1:delete",
+      method: "delete",
+      replaySafe: true,
+      status: "applied",
+      attempt: 2,
+      owner: peer.owner,
+    });
+  });
+
+  it("refuses a record that merely LOOKS like its claim — identity, not shape", () => {
+    const dir = freshDir();
+    const intent = { key: "k", method: "delete", replaySafe: true };
+    let peerOwner = "";
+    // While my claim is unresolved, the record is removed out of band (an operator clearing a stuck
+    // claim, a sweeper, a restored backup) and a SECOND process makes its own first claim for the
+    // same key and is still mid-flight. Its record is `pending`, attempt 1 — byte-identical in shape
+    // to mine. Only the writer's identity distinguishes them, which is why the check compares it.
+    const mine = new FsJournal(dir, {
+      chaos: interleaveAt("after-claim", () => {
+        rmSync(join(dir, readdirSync(dir)[0]!), { force: true });
+        const peer = new FsJournal(dir, { chaos: crashAt("after-claim") });
+        peerOwner = peer.owner;
+        attempt(() => peer.runOnce(intent, () => true));
+      }),
+    });
+
+    expect(mine.runOnce(intent, () => false)).toEqual({ status: "noop" });
+
+    expect(new FsJournal(dir).lookup("k"), "a live claim from another process was destroyed").toEqual({
+      key: "k",
+      method: "delete",
+      replaySafe: true,
+      status: "pending",
+      attempt: 1,
+      owner: peerOwner,
+    });
+  });
+
+  /**
+   * The same instance, re-entered. An effect that performs a nested compensation for the same key
+   * writes a record with THIS instance's own owner id, so identity alone cannot tell the inner run's
+   * work from the outer run's claim. The rest of the check — still `pending`, still the same attempt
+   * — is what keeps the outer release from deleting the inner run's result.
+   */
+  it("does not delete an inner run's APPLIED record when the outer attempt then no-ops", () => {
+    const dir = freshDir();
+    const j = new FsJournal(dir);
+    const intent = { key: "k", method: "delete", replaySafe: true };
+
+    const out = j.runOnce(intent, () => {
+      rmSync(join(dir, readdirSync(dir)[0]!), { force: true }); // the claim is swept out of band
+      j.runOnce(intent, () => true); // the nested compensation claims afresh and durably applies
+      return false; // …so the outer attempt finds nothing left to do, and releases
+    });
+
+    expect(out).toEqual({ status: "noop" });
+    expect(j.lookup("k"), "an applied record was destroyed by the outer release").toEqual({
+      key: "k",
+      method: "delete",
+      replaySafe: true,
+      status: "applied",
+      attempt: 1,
+      owner: j.owner,
+    });
+  });
+
+  it("does not delete an inner run's later ATTEMPT when the outer attempt then no-ops", () => {
+    const dir = freshDir();
+    const j = new FsJournal(dir);
+    const intent = { key: "k", method: "delete", replaySafe: true };
+
+    const out = j.runOnce(intent, () => {
+      j.runOnce(intent, () => false); // the nested compensation redoes the claim as attempt 2
+      return false;
+    });
+
+    expect(out).toEqual({ status: "noop" });
+    // Attempt 2 is unresolved, so recovery must still see it. Deleting it would erase the fact that
+    // a second attempt was made at all.
+    expect(j.lookup("k"), "a later attempt's claim was destroyed by an earlier attempt's release").toEqual({
+      key: "k",
+      method: "delete",
+      replaySafe: true,
+      status: "pending",
+      attempt: 2,
+      owner: j.owner,
+    });
+  });
+
+  it("a caller may still release its OWN unresolved claim — the check refuses others, not everything", () => {
+    const dir = freshDir();
+    const intent = { key: "k", method: "delete", replaySafe: true };
+    const j = new FsJournal(dir);
+    expect(j.runOnce(intent, () => false)).toEqual({ status: "noop" });
+    expect(j.lookup("k")).toBeUndefined();
   });
 });
 

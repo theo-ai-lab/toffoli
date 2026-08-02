@@ -71,16 +71,23 @@ describe("FsJournal — the seam contract", () => {
     expect(j.runOnce(DELETE, () => true)).toEqual({ status: "applied", attempt: 1 });
   });
 
-  it("records the method and replay-safety alongside the key, so recovery can reason about it", () => {
+  it("records the method, replay-safety and WRITER alongside the key, so recovery can reason about it", () => {
     const dir = freshDir();
-    new FsJournal(dir).runOnce(REFUND, () => true);
+    const writer = new FsJournal(dir);
+    writer.runOnce(REFUND, () => true);
     expect(new FsJournal(dir).lookup("k1")).toEqual({
       key: "k1",
       method: "refund",
       replaySafe: false,
       status: "applied",
       attempt: 1,
+      owner: writer.owner,
     });
+  });
+
+  it("gives every instance a distinct owner — a restarted process holds none of the old claims", () => {
+    const dir = freshDir();
+    expect(new FsJournal(dir).owner).not.toBe(new FsJournal(dir).owner);
   });
 
   // ── boundary validation: one error shape, checked at the seam ──
