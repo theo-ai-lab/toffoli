@@ -2,10 +2,11 @@
 
 ## Overview
 
-An adversarial review of the world-truth gate produced ten findings. The headline (the
-gate could not fail for `8897b1f`) is fixed in `1d4dcb6`. Four remain, each reproduced
-by the reviewer with a concrete mutation. They are sequenced here rather than left in a
-commit message, because a finding recorded in prose is one nobody is accountable for.
+Falsifying the world-truth gate — reintroducing, one at a time, each defect it claims to
+guard — produced ten findings. The headline (the gate could not fail for `8897b1f`) is
+fixed in `1d4dcb6`. Four remain, each reproduced by a concrete mutation. They are
+sequenced here rather than left in a commit message, because a finding recorded in prose
+is one nobody is accountable for.
 
 **Ordering principle:** the two that let the gate pass while broken come first. A gate
 that can be silently weakened is worse than a missing check, because it reports a
@@ -24,9 +25,9 @@ verdict either way.
 
 - [ ] **Task 1 — Make the detector assert each dimension separately (D2).** `XS`
   `gate.ts:95` asserts `!lying.recoverableRestored`, which is
-  `!(files && rows && ledger)` — satisfied by any single live dimension. The reviewer
-  gutted `sameRecord` to a constant `true` and the **full gate still passed**, leaving
-  one `number ===` on the ledger as the only surviving world comparison.
+  `!(files && rows && ledger)` — satisfied by any single live dimension. Gutting
+  `sameRecord` to a constant `true` leaves the **full gate still passing**, with one
+  `number ===` on the ledger as the only surviving world comparison.
   - Acceptance: the detector asserts `files === false`, `rows === false` and
     `ledger === false` individually, or uses three single-dimension lying worlds.
   - Verify: `sameRecord` → `true` must FAIL the gate. So must `readFiles()` → `{}`.
@@ -36,8 +37,8 @@ verdict either way.
 - [ ] **Task 2 — Add a negative control for `idempotentOnReplay` (D4).** `S`
   `fs-recover.ts:144` compares two snapshots and **discards the replay's
   `RuntimeReport`**, so "replayed as a no-op" and "every step errored and the saga
-  blocked the rest" are indistinguishable. The reviewer deleted the already-applied
-  short-circuit at `fs-journal.ts:207` and the gate printed
+  blocked the rest" are indistinguishable. Deleting the already-applied short-circuit at
+  `fs-journal.ts:207` makes the gate print
   `✓ … replays with zero extra mutation (durable idempotency)` for a run with
   `restored=0 compFailed=1 blocked=3`.
   - Acceptance: the check asserts the replay REPORT (no `compensation-failed`, no
@@ -84,7 +85,7 @@ verdict either way.
 | Risk | Impact | Mitigation |
 |---|---|---|
 | Task 2 changes what "idempotent" means and breaks the honest path | Med | `restored=4` on honest replay is expected (`once()` maps already-applied → true). Decide the discriminator explicitly before coding. |
-| Adding checks slows the gate further | Low | Already ~1s; the drill is 272 cases in 0.81s. Not a constraint. |
+| Adding checks slows the gate further | Low | Already ~1s. Not a constraint. |
 | Fixing D2 makes the detector brittle to legitimate `FsWorld` changes | Low | Assert dimensions, not implementation. A new dimension should force a deliberate update. |
 
 ## Explicitly out of scope

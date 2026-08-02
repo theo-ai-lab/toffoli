@@ -2,7 +2,8 @@
  * Toffoli — FsJournal, the durable write-ahead claim record behind every real-world inverse.
  *
  * An idempotency marker that is a plain "does this file exist?" check has two holes, and both were
- * reproduced against this repo before this file existed (docs/plans/plans/2026-08-01-fs-journal-chaos.md):
+ * reproduced by execution against the pre-journal adapter before this file existed — not predicted
+ * on paper:
  *
  *   1. SILENT LOST COMPENSATION. Claim-then-effect means a crash in between leaves a claim with no
  *      effect. The next run sees the claim and reports SUCCESS for work that never happened — a

@@ -1,11 +1,11 @@
 /**
  * Toffoli — the PERMISSION ORACLE: a reversibility-bounded PRE-ACT authorizer.
  *
- * This is the third leg of the "three-talk safety story". The mechanized Lean proof (sibling
- * worktree) is step 1: the no-under-call soundness theorem over the abstract classifier. The
- * counterexample search (lib/agent/counterexample-search.ts) is the empirical complement. THIS is
- * the runtime use the proof exists to license: a gate that replaces the human "are you sure you want
- * to do this?" permission prompt with a safety-floor-backed decision, made BEFORE the agent acts.
+ * The mechanized Lean proof (formal/) establishes the no-under-call soundness theorem over the
+ * abstract classifier; the counterexample search (lib/agent/counterexample-search.ts) is its
+ * empirical complement. THIS module is the runtime use those two exist to license: a gate that
+ * replaces the human "are you sure you want to do this?" permission prompt with a
+ * safety-floor-backed decision, made BEFORE the agent acts.
  *
  * The contract is exactly the proof's: classify the action with the deterministic floor
  * (lib/engine/classify.ts) and bind autonomy to reversibility.

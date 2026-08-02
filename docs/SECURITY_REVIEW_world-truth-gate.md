@@ -1,9 +1,11 @@
-# Differential security review — the world-truth gate changeset
+# Security review — the world-truth gate changeset
 
-**Branch:** `elite/gate-falsification-and-mcp-fixes` · **Range:** `b03db3c^..d96e314` (3 commits)
-**Date:** 2026-08-02 · **Strategy:** DEEP (SMALL — 6 files changed, all deps read)
+**Range:** `b03db3c^..d96e314` (3 commits) · **Date:** 2026-08-02
 
-## Phase 0 — Triage
+Small changeset (6 files), so every changed file and its direct dependencies were read rather
+than sampled.
+
+## Triage
 
 | File | Δ | Risk | Why |
 |---|---|---|---|
@@ -15,7 +17,7 @@
 
 No dependency added.
 
-## Phase 1 — Was any security check removed?
+## Was any security check removed?
 
 No. The only non-comment deletions are `fsRecoveryScenario`'s signature and the two
 `new FsWorld(root)` constructions, each replaced by `makeWorld(root)` with `FsWorld` as the
@@ -23,7 +25,7 @@ default. `git blame` shows none of the removed lines originate from a security o
 
 The changeset is strictly additive to the gate: 16 checks → 19, none removed or weakened.
 
-## Phase 2 — Test coverage
+## Test coverage
 
 The three new gate checks are covered by `fs-recover.gate.test.ts` (honest run + lying-world
 detector) and, more importantly, by `npm run gate:mutate`, which reports them among the catchers
@@ -32,13 +34,13 @@ for `classifier-forced-to-irreversible` — so they are load-bearing rather than
 `resilience.test.ts` adds 17 tests to a module that had **no dedicated test file at all**, pinning
 every circuit-breaker transition with an injected clock.
 
-## Phase 3 — Blast radius
+## Blast radius
 
 5 call sites, all in-repo: `gate.ts:85`, `gate.ts:106`, `fs-world.test.ts:58`,
 `fs-recover.ts:165` (CLI), `fs-recover.gate.test.ts`. `makeWorld` is optional, so the pre-existing
 caller at `fs-world.test.ts:58` compiles and passes unchanged. Low radius, source-compatible.
 
-## Phase 5 — Adversarial
+## Threat model
 
 Threat model here is not a network attacker — it is **a future edit that makes the gate stop being
 able to fail**, which is the failure this changeset exists to prevent.
@@ -70,8 +72,8 @@ A crash between `mkdtempSync` and the `finally` leaks a temp directory. Cosmetic
   check against a real failure mode, just not a world check.
 - Coverage floors are green but thin: statements 76.14 vs a floor of 76. A single untested module
   flips CI red. Not a security finding; an availability one for the gate itself.
-- An adversarial reviewer is examining these same checks independently at time of writing; its
-  findings are not yet folded in.
+- This review covers the changeset above only. Further findings against the same checks are tracked
+  in `docs/PLAN_gate-hardening.md`.
 
 ## Verdict
 

@@ -3,8 +3,9 @@
  *
  * fs-world.test.ts proves the happy path restores real disk state. This file proves what happens
  * when the process does NOT survive the compensation, and when two of them share a root. Both
- * defects locked down here were reproduced against the pre-journal adapter first — see
- * docs/plans/plans/2026-08-01-fs-journal-chaos.md.
+ * defects locked down here were reproduced against the pre-journal adapter first, by execution —
+ * a real SIGKILL in the claim window and a real multi-process race — then pinned deterministically
+ * here so they can never flake.
  */
 
 import { describe, it, expect, afterEach } from "vitest";

@@ -12,13 +12,12 @@
  *                          plan-bound confirm-token gating ALWAYS apply. Plan-only by default.
  *
  * ── TRANSPORT ──
- * `@modelcontextprotocol/sdk` is NOT a dependency of this repo (zero-extra-dep ethos). So the
- * default transport is a HAND-ROLLED stdio JSON-RPC 2.0 loop (node:readline only, zero deps),
- * implementing initialize / tools/list / tools/call. If the SDK is later installed, `createSdkServer`
- * picks it up automatically (it is lazily, guardedly imported so this file type-checks WITHOUT it).
- *
- *   DEFERRED INSTALL (optional): `npm i @modelcontextprotocol/sdk` to use the official transport.
- *   Until then everything runs on the hand-rolled `serveStdio()` — no install required.
+ * `@modelcontextprotocol/sdk` is a devDependency and stays one — the RUNTIME dependency budget is
+ * two (@anthropic-ai/sdk, zod). So an installed user always gets the HAND-ROLLED stdio JSON-RPC 2.0
+ * loop (node:readline only, zero deps), implementing initialize / tools/list / tools/call; that is
+ * the supported path. When the SDK does resolve — a clone of this repo — `createSdkServer` picks it
+ * up automatically (lazily and guardedly imported, so this file type-checks WITHOUT it). The two
+ * transports differ in who owns the handshake; see docs/HOST_INTEGRATION.md.
  *
  * The tool handlers (`handleCheckpoint` / `handleClassify` / `handleRecover`) and the protocol
  * dispatcher (`handleRpcMessage`) are exported directly so they are unit-testable WITHOUT the SDK

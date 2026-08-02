@@ -2,8 +2,8 @@
  * Toffoli — the SAFE runtime executor (the unattended-deploy execution path).
  *
  * `execute` (lib/exec/executor.ts) is the bare saga loop used by the demo/eval. THIS is the path a
- * deployed, agent-called, mostly-unattended Toffoli runs through. It composes the operational-safety
- * floor the will-deploy frame requires, in one chokepoint:
+ * deployed, agent-called, mostly-unattended Toffoli runs through. It composes the whole
+ * operational-safety floor into one chokepoint:
  *
  *   1. MODE + KILL-SWITCH (mode.ts) — one place decides if the world may be mutated; the kill-switch
  *      forces dry-run, enforced here, not advisory.

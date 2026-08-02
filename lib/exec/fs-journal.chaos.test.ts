@@ -2,11 +2,11 @@
  * Toffoli — the chaos tests: what FsJournal promises when a process dies mid-cycle, and when two
  * callers land in the same window.
  *
- * Both defects these lock down were reproduced against the pre-journal code first
- * (docs/plans/plans/2026-08-01-fs-journal-chaos.md). The reproductions there were a real
- * SIGKILL and a real 12-process race. What lives HERE is deterministic: crashes are placed at exact
- * labelled points and the "other process" is invoked in an exact window, so these tests can never be
- * lucky and can never flake. A flaky concurrency test is worse than none.
+ * Both defects these lock down were reproduced against the pre-journal code first, by execution: a
+ * real SIGKILL parked in the claim window, and a real 12-process race. Those reproductions proved
+ * the defects were reachable; they are not what ships. What lives HERE is deterministic — crashes
+ * are placed at exact labelled points and the "other process" is invoked in an exact window, so
+ * these tests can never be lucky and can never flake. A flaky concurrency test is worse than none.
  */
 
 import { describe, it, expect, afterEach } from "vitest";

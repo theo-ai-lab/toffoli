@@ -39,9 +39,9 @@ Four checks added (16 → 20):
 2. `a fresh world over the same on-disk root replays with zero extra mutation` — durable
    idempotency.
 3. `a REOPENED world recovers a SECOND round of damage` — the precondition 8897b1f
-   actually needs. Added 2026-08-02 after an adversarial review reverted `nextId()` to
-   the ephemeral counter and the gate still passed 19/19 while the unit suite failed
-   7 of 16. The original three checks damaged the world ONCE and replayed the SAME plan
+   actually needs. Added 2026-08-02 after reintroducing the defect by hand: reverting
+   `nextId()` to the ephemeral counter left the gate passing 19/19 while the unit suite
+   failed 7 of 16. The original three checks damaged the world ONCE and replayed the SAME plan
    object, so the id allocator was never called twice and the motivating defect was
    structurally invisible. Verified both ways: with the defect reintroduced the gate now
    reports `reported=3 files=false rows=false` and FAILS.
@@ -81,15 +81,15 @@ detector that only lied on the first pass would be a weaker control.
 
 - Pros: `fs-world.test.ts` and the durability tests already exercise `FsWorld`.
 - Cons: the gate is what the release decision reads. `8897b1f` shipped on a branch whose
-  suite was green, and the agent that found it wrote plainly: *"Do not read 'gates
-  green' as 'the exec layer is clean' — it is not."*
+  suite was green, which is exactly the lesson: "gates green" must not be read as "the
+  exec layer is clean."
 - **Rejected**: the gate has to be able to fail for this class, or "gate passed" keeps
   meaning less than it sounds like.
 
 ## Consequences
 
 - The gate now touches a real filesystem, so it is slower and needs a writable temp dir. Measured cost is small next to what it covers.
-- **CORRECTION (2026-08-02, adversarial review).** This ADR previously claimed
+- **CORRECTION (2026-08-02).** This ADR previously claimed
   `gate:mutate` showed the new checks were load-bearing. That was wrong on two counts:
   only 2 of the 3 appear as catchers, and they appear for reasons unrelated to world
   truth (`kill-switch-branch-inverted` makes the whole run dry-run;

@@ -9,9 +9,10 @@
  *      verified back to the pre-fire baseline).
  *   3. IRREVERSIBLE NEVER SPECULATES (external sends are provably un-undoable → escalated, never fired;
  *      the outbox stays empty).
- *   4. The SUITE cascade-telemetry slice + the one-line measured sentence.
+ *   4. The cascade-telemetry slice + the one-line measured sentence.
  *   5. The acceptance-vs-restitution-cost CURVE (a sweep over the operating eligibility set).
- *   6. The KILL-SWITCH: under a freeze, NOTHING is fired (speculation needs the right to fire AND roll back).
+ *   6. The CALIBRATION: a Wilson lower bound, Bonferroni-corrected — never a magic constant.
+ *   7. The KILL-SWITCH: under a freeze, NOTHING is fired (speculation needs the right to fire AND roll back).
  *
  * Deterministic and offline (no key, no network). The only mutations are to the in-memory sandbox.
  */
@@ -60,7 +61,7 @@ async function main(): Promise<void> {
   console.log(`  every rollback restored the pre-fire baseline (lossless): ${rolledBack.every((o) => o.rollback?.lossless) ? "YES" : "NO"}  (${rolledBack.length} mis-speculation(s))`);
   console.log(`  escalated to a human (durable, never auto-undone): ${report.escalations.length}`);
 
-  // ── 4 · the suite cascade-telemetry slice + the measured sentence ──
+  // ── 4 · the cascade-telemetry slice + the measured sentence ──
   const t = report.telemetry;
   console.log(`\n  CASCADE TELEMETRY (boundary: ${t.boundary})`);
   console.log(`    regime=${t.regime}  locus=${t.locus}  n=${t.n}`);

@@ -64,15 +64,6 @@ export interface FsRecoveryReport {
 }
 
 /**
- * The env is PINNED on every safeExecute below. Reading ambient process.env made
- * `TOFFOLI_EXECUTE_DISABLED=1 npm run gate` fail three checks with "a world that
- * changed nothing was accepted" — the repo's own advertised kill-switch accusing the
- * code of fabrication. Every safeExecute in lib/gate.ts already pins it.
- *
- * Run the canonical damage→recover scenario on a real FsWorld, THROUGH the full operational-safety
- * floor (the deploy path) — not the bare saga loop. Pass `keep:true` to leave the temp dir on disk.
- */
-/**
  * A world that REPORTS every compensation as a success and changes nothing.
  *
  * The negative control for the gate's world-truth check: its executor account is
@@ -94,6 +85,15 @@ export class LyingFsWorld extends FsWorld {
   }
 }
 
+/**
+ * Run the canonical damage→recover scenario on a real FsWorld, THROUGH the full operational-safety
+ * floor (the deploy path) — not the bare saga loop. Pass `keep:true` to leave the temp dir on disk.
+ *
+ * The env is PINNED on every `safeExecute` below. Reading ambient `process.env` made
+ * `TOFFOLI_EXECUTE_DISABLED=1 npm run gate` fail three checks with "a world that changed nothing was
+ * accepted" — the repo's own advertised kill-switch accusing the code of fabrication. Every
+ * `safeExecute` in lib/gate.ts already pins it, so this follows the same convention.
+ */
 export function fsRecoveryScenario(
   opts: {
     root?: string;
@@ -158,10 +158,10 @@ export function fsRecoveryScenario(
     //
     // Everything above damages once. The replay reuses the SAME plan object with the same
     // action ids, so the id allocator is never called a second time and the defect this
-    // scenario was built to catch is structurally invisible: an adversarial review reverted
-    // nextId() to the ephemeral counter and the whole gate still passed 19/19 while the unit
-    // suite failed 7 of 16. A gate that cannot fail for its own motivating defect is a gate
-    // that says less than it sounds like.
+    // scenario was built to catch is structurally invisible. Measured by reintroducing it:
+    // with nextId() reverted to the ephemeral counter the whole gate still passed 19/19 while
+    // the unit suite failed 7 of 16. A gate that cannot fail for its own motivating defect is
+    // a gate that says less than it sounds like.
     //
     // A reopened world damaging a fresh set of actions is what forces new ids against the
     // durable applied/ markers. With an instance-local counter the second cycle's ids collide

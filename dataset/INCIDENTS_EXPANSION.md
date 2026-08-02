@@ -1,6 +1,6 @@
 # Incident-set expansion (adjudicated)
 
-This branch adds **12 web-verified documented incidents** to `incidents.jsonl` (6 → 18) to grow the
+`incidents.jsonl` grew by **12 web-verified documented incidents** (6 → 18) to widen the
 hand-labeled real-incident set behind the IRREVERSIBLE headline. Every row is grounded in a real,
 citable public source (`meta.source`). The 3 contested labels below were **adjudicated** — a second
 adjudication pass by the same maintainer, **not an independent annotator**. The rest of the set is
