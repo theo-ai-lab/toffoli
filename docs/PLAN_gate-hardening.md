@@ -23,7 +23,7 @@ verdict either way.
 
 ### Phase 1: the gate can currently pass while broken
 
-- [ ] **Task 1 — Make the detector assert each dimension separately (D2).** `XS`
+- [x] **Task 1 — Make the detector assert each dimension separately (D2). DONE 2026-08-02.** `XS`
   `gate.ts:95` asserts `!lying.recoverableRestored`, which is
   `!(files && rows && ledger)` — satisfied by any single live dimension. Gutting
   `sameRecord` to a constant `true` leaves the **full gate still passing**, with one
@@ -34,7 +34,7 @@ verdict either way.
   - Files: `lib/gate.ts`, possibly `lib/exec/fs-recover.ts`.
   - Depends on: none.
 
-- [ ] **Task 2 — Add a negative control for `idempotentOnReplay` (D4).** `S`
+- [x] **Task 2 — Add a negative control for `idempotentOnReplay` (D4). DONE 2026-08-02.** `S`
   `fs-recover.ts:144` compares two snapshots and **discards the replay's
   `RuntimeReport`**, so "replayed as a no-op" and "every step errored and the saga
   blocked the rest" are indistinguishable. Deleting the already-applied short-circuit at
@@ -49,8 +49,8 @@ verdict either way.
   - Files: `lib/exec/fs-recover.ts`, `lib/gate.ts`.
   - Depends on: none.
 
-### Checkpoint A
-- [ ] Both mutations above turn the gate red. `npm run gate` green on clean HEAD.
+### Checkpoint A — MET 2026-08-02
+- [x] Both mutations above turn the gate red. `npm run gate` green on clean HEAD.
 - [ ] 391+ tests, `gate:mutate` still 7/7.
 
 ### Phase 2: the gate misreports its own environment

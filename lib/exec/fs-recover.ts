@@ -60,6 +60,8 @@ export interface FsRecoveryReport {
   secondCycleReported: number;
   /** A fresh FsWorld over the same root replayed the plan with zero additional mutation. */
   idempotentOnReplay: boolean;
+  /** What the replay REPORTED, so a total failure cannot masquerade as a no-op. */
+  replayReport: { compensationFailed: number; blocked: number };
   totals: { actions: number; recoverable: number; irreversible: number; restored: number };
 }
 
@@ -150,9 +152,15 @@ export function fsRecoveryScenario(
     // DURABLE IDEMPOTENCY: a brand-new FsWorld over the same on-disk root replays the plan. Because
     // the claim journal is persisted, every inverse is a skip — no double-refund, no corruption.
     const replayWorld = makeWorld(root);
-    safeExecute(plan, replayWorld, { mode: "execute", env: {} as NodeJS.ProcessEnv, confirmToken: token, policy: SANDBOX_AUTO_POLICY });
+    const replayResult = safeExecute(plan, replayWorld, { mode: "execute", env: {} as NodeJS.ProcessEnv, confirmToken: token, policy: SANDBOX_AUTO_POLICY });
     const afterReplay = replayWorld.snapshot();
-    const idempotentOnReplay = JSON.stringify(afterReplay) === JSON.stringify(after);
+    // The snapshot alone cannot tell "replayed as a no-op" from "every step errored and
+    // the saga blocked the rest" — both leave the world untouched. Deleting the
+    // already-applied short-circuit in fs-journal made the replay report
+    // restored=0 compFailed=1 blocked=3 and this check still said "durable idempotency".
+    // So the REPORT is part of the assertion: a clean replay escalates nothing.
+    const replayWasClean = replayResult.compensationFailed === 0 && replayResult.blocked === 0;
+    const idempotentOnReplay = replayWasClean && JSON.stringify(afterReplay) === JSON.stringify(after);
 
     // SECOND CYCLE over the SAME on-disk root — the precondition d6d7472 actually needs.
     //
@@ -197,6 +205,7 @@ export function fsRecoveryScenario(
       recoverableRestored,
       irreversibleUntouched,
       idempotentOnReplay,
+      replayReport: { compensationFailed: replayResult.compensationFailed, blocked: replayResult.blocked },
       secondCycleMatch,
       secondCycleRestored,
       secondCycleReported: cycle2Result.restored,

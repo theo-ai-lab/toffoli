@@ -92,10 +92,22 @@ let worldTruthDetects = false;
 let worldTruthDetail = "";
 try {
   const lying = fsRecoveryScenario({ root: lyingRoot, makeWorld: (r) => new LyingFsWorld(r) });
-  worldTruthDetects = lying.result.restored > 0 && lying.result.fabricationCheck.pass && !lying.recoverableRestored;
+  // Assert EACH dimension dissents, not the conjunction. `recoverableRestored` is
+  // files && rows && ledger, so `!recoverableRestored` is satisfied by ANY ONE live
+  // comparison — gutting sameRecord() to a constant true left files and rows dead and
+  // the whole gate still passed, with one `number ===` on the ledger carrying it. A
+  // detector that survives two thirds of its comparisons being constants is not a
+  // detector.
+  const lyingMatch = lying.recoverableMatch;
+  worldTruthDetects =
+    lying.result.restored > 0 &&
+    lying.result.fabricationCheck.pass &&
+    !lyingMatch.files &&
+    !lyingMatch.rows &&
+    !lyingMatch.ledger;
   worldTruthDetail = worldTruthDetects
     ? `${lying.result.restored} restoration(s) reported and journal-confirmed; the disk says otherwise`
-    : `a world that changed nothing was accepted (restored=${lying.result.restored}, fabricationPass=${lying.result.fabricationCheck.pass}, worldRestored=${lying.recoverableRestored})`;
+    : `a world that changed nothing was accepted (restored=${lying.result.restored}, fabricationPass=${lying.result.fabricationCheck.pass}, files=${lyingMatch.files} rows=${lyingMatch.rows} ledger=${lyingMatch.ledger})`;
 } finally {
   rmSync(lyingRoot, { recursive: true, force: true });
 }
