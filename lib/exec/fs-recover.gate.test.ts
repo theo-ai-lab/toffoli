@@ -5,7 +5,7 @@
  * JOURNAL. Both are the same witness. An executor that believes it compensated — because its action
  * ids, its journal keys, or its idempotency keys are wrong — reports "restored", writes a matching
  * journal entry, and passes. The disk never moved. That is not hypothetical here: it is the defect
- * fixed in 8897b1f, where FsWorld allocated action ids from an ephemeral counter, so a reopened root
+ * fixed in d6d7472, where FsWorld allocated action ids from an ephemeral counter, so a reopened root
  * produced a compensation that was reported, journal-confirmed, and never applied.
  *
  * `npm run gate` did not and could not catch it: the gate runs `recoveryScenario` (the in-memory

@@ -79,7 +79,7 @@ const fabricationDetected = fabReport.restored > 0 && !fabReport.fabricationChec
 //     its own count, and `fabricationCheck` compares that count against the journal the same
 //     executor wrote. One witness, asked twice. An executor whose action ids or idempotency keys
 //     are wrong reports a restoration, records it, and never moves the disk — which is precisely
-//     what 8897b1f fixed in FsWorld. This gate could not have caught it: it ran the in-memory
+//     what d6d7472 fixed in FsWorld. This gate could not have caught it: it ran the in-memory
 //     world only, so the real adapters were outside the thing that decides whether this ships.
 const fsReal = fsRecoveryScenario();
 
@@ -188,7 +188,7 @@ const checks = [
   { name: "the REAL on-disk world returns to baseline (not the executor's account of itself)", pass: fsReal.recoverableRestored, detail: `files=${fsReal.recoverableMatch.files} rows=${fsReal.recoverableMatch.rows} ledger=${fsReal.recoverableMatch.ledger}` },
   { name: "a fresh world over the same on-disk root replays with zero extra mutation", pass: fsReal.idempotentOnReplay, detail: "durable idempotency" },
   { name: "the REAL world's irreversible dimensions are untouched (restraint on disk, not in memory)", pass: fsReal.irreversibleUntouched, detail: "restraint" },
-  { name: "a REOPENED world recovers a SECOND round of damage (the 8897b1f precondition)", pass: fsReal.secondCycleRestored, detail: `reported=${fsReal.secondCycleReported} files=${fsReal.secondCycleMatch.files} rows=${fsReal.secondCycleMatch.rows} ledger=${fsReal.secondCycleMatch.ledger}` },
+  { name: "a REOPENED world recovers a SECOND round of damage (the d6d7472 precondition)", pass: fsReal.secondCycleRestored, detail: `reported=${fsReal.secondCycleReported} files=${fsReal.secondCycleMatch.files} rows=${fsReal.secondCycleMatch.rows} ledger=${fsReal.secondCycleMatch.ledger}` },
   { name: "WORLD-TRUTH DETECTOR fires when a compensation is reported but never applied", pass: worldTruthDetects, detail: worldTruthDetail },
   { name: "anti-fabrication DETECTOR fires on a lost durable write", pass: fabricationDetected, detail: fabricationDetected ? `${fabReport.restored} restoration(s) reported, all flagged unconfirmed` : "a journal that never completed a step still reported PASS" },
   { name: "a confirm token bound to a DIFFERENT plan is refused", pass: staleTokenRefused, detail: staleTokenRefused ? `phase=${staleReport.phase}; world unchanged` : `phase=${staleReport.phase}; a foreign token authorized this plan` },

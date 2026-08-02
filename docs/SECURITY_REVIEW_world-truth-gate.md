@@ -1,6 +1,6 @@
 # Security review — the world-truth gate changeset
 
-**Range:** `b03db3c^..d96e314` (3 commits) · **Date:** 2026-08-02
+**Range:** `55f4425^..2c791f5` (3 commits) · **Date:** 2026-08-02
 
 Small changeset (6 files), so every changed file and its direct dependencies were read rather
 than sampled.

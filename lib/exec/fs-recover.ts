@@ -54,7 +54,7 @@ export interface FsRecoveryReport {
   irreversibleUntouched: boolean;
   /** Per-dimension result of the SECOND damage->recover cycle over the same root. */
   secondCycleMatch: { files: boolean; rows: boolean; ledger: boolean };
-  /** Did a REOPENED world recover a second, different set of damage? (8897b1f's precondition.) */
+  /** Did a REOPENED world recover a second, different set of damage? (d6d7472's precondition.) */
   secondCycleRestored: boolean;
   /** How many restorations the second cycle REPORTED, regardless of what the disk did. */
   secondCycleReported: number;
@@ -154,7 +154,7 @@ export function fsRecoveryScenario(
     const afterReplay = replayWorld.snapshot();
     const idempotentOnReplay = JSON.stringify(afterReplay) === JSON.stringify(after);
 
-    // SECOND CYCLE over the SAME on-disk root — the precondition 8897b1f actually needs.
+    // SECOND CYCLE over the SAME on-disk root — the precondition d6d7472 actually needs.
     //
     // Everything above damages once. The replay reuses the SAME plan object with the same
     // action ids, so the id allocator is never called a second time and the defect this

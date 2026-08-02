@@ -18,7 +18,7 @@ One witness, asked twice.
 That is weaker than it reads. An executor whose action ids, journal keys, or
 idempotency keys are wrong will report a restoration, record it in its journal, and
 never move the disk — and both checks pass. This is not hypothetical: it is commit
-`8897b1f`, where `FsWorld` allocated action ids from an ephemeral in-memory counter, so
+`d6d7472`, where `FsWorld` allocated action ids from an ephemeral in-memory counter, so
 a reopened root produced a compensation that was reported, journal-confirmed, and never
 applied.
 
@@ -38,7 +38,7 @@ Four checks added (16 → 20):
    files, rows and ledger diffed against the pre-damage baseline.
 2. `a fresh world over the same on-disk root replays with zero extra mutation` — durable
    idempotency.
-3. `a REOPENED world recovers a SECOND round of damage` — the precondition 8897b1f
+3. `a REOPENED world recovers a SECOND round of damage` — the precondition d6d7472
    actually needs. Added 2026-08-02 after reintroducing the defect by hand: reverting
    `nextId()` to the ephemeral counter left the gate passing 19/19 while the unit suite
    failed 7 of 16. The original three checks damaged the world ONCE and replayed the SAME plan
@@ -80,7 +80,7 @@ detector that only lied on the first pass would be a weaker control.
 ### Leave it to the test suite
 
 - Pros: `fs-world.test.ts` and the durability tests already exercise `FsWorld`.
-- Cons: the gate is what the release decision reads. `8897b1f` shipped on a branch whose
+- Cons: the gate is what the release decision reads. `d6d7472` shipped on a branch whose
   suite was green, which is exactly the lesson: "gates green" must not be read as "the
   exec layer is clean."
 - **Rejected**: the gate has to be able to fail for this class, or "gate passed" keeps
@@ -98,7 +98,7 @@ detector that only lied on the first pass would be a weaker control.
   open work.
 - **CORRECTION.** The gate touches a real filesystem only. This ADR and `gate.ts`
   previously said "and sqlite database"; `SqlWorld` — which had the identical
-  id-allocation defect, fixed in `422b37d` — is **not** in the gate at all.
+  id-allocation defect, fixed in `c121a2e` — is **not** in the gate at all.
 - Coverage moved 76.29 → 76.05 against a floor of 76, because the new gate code is real
   `lib/` surface that vitest never executes. The floor was **not** lowered and
   `gate.ts` was **not** excluded — the vitest config's own rule is that an untested
