@@ -119,7 +119,13 @@ describe("SqlWorld — an idempotency key names ONE compensation, for the life o
       ),
       { seed: 20260802, numRuns: 60 },
     );
-  });
+    // 60 runs, each opening a fresh database and replaying up to six process
+    // lifetimes, is real work rather than a slow assertion: it exceeded the 5s
+    // default on CI while passing locally. The property is what makes id
+    // uniqueness meaningful across reopens, so it gets the time it needs rather
+    // than fewer runs -- shrinking numRuns to fit a timeout would quietly buy
+    // green by testing less.
+  }, 30_000);
 
   it("compensates every damaged row across arbitrarily many reopens, or reports failure honestly", () => {
     fc.assert(
