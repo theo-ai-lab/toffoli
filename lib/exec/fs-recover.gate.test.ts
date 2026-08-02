@@ -22,21 +22,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fsRecoveryScenario } from "./fs-recover";
-import { FsWorld } from "./fs-world";
-
-/** Reports every compensation as a success and changes nothing. */
-class LyingFsWorld extends FsWorld {
-  override deleteFile(): boolean {
-    return true;
-  }
-  override restoreRow(): boolean {
-    return true;
-  }
-  override refund(): boolean {
-    return true;
-  }
-}
+import { fsRecoveryScenario, LyingFsWorld } from "./fs-recover";
 
 describe("the on-disk comparison is what catches a lying executor", () => {
   it("an honest run restores the real world and replays idempotently", () => {

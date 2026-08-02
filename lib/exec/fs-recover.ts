@@ -61,6 +61,28 @@ export interface FsRecoveryReport {
  * Run the canonical damage→recover scenario on a real FsWorld, THROUGH the full operational-safety
  * floor (the deploy path) — not the bare saga loop. Pass `keep:true` to leave the temp dir on disk.
  */
+/**
+ * A world that REPORTS every compensation as a success and changes nothing.
+ *
+ * The negative control for the gate's world-truth check: its executor account is
+ * spotless and its journal agrees, so only a before/after comparison of the real disk
+ * can dissent. Defined ONCE and exported, because it was briefly defined twice — in
+ * `lib/gate.ts` and in `fs-recover.gate.test.ts` — and a control that exists in two
+ * copies drifts. If `FsWorld` gains a compensating method and only one copy overrides
+ * it, the two detectors stop agreeing and the GATE is the one that silently weakens.
+ */
+export class LyingFsWorld extends FsWorld {
+  override deleteFile(): boolean {
+    return true;
+  }
+  override restoreRow(): boolean {
+    return true;
+  }
+  override refund(): boolean {
+    return true;
+  }
+}
+
 export function fsRecoveryScenario(
   opts: {
     root?: string;

@@ -22,8 +22,7 @@ import { classifyDeterministic } from "./engine/classify";
 import type { AgentAction, Classification, CompensatingAction } from "./engine/types";
 import { lakeOnPath, leanMissingHint } from "./lean-toolchain";
 import { recoveryScenario, buildRecoveryCase } from "./exec/recover";
-import { fsRecoveryScenario } from "./exec/fs-recover";
-import { FsWorld } from "./exec/fs-world";
+import { fsRecoveryScenario, LyingFsWorld } from "./exec/fs-recover";
 import { safeExecute, computeConfirmToken } from "./runtime/safe-executor";
 import { InMemoryJournal } from "./runtime/journal";
 import { DEFAULT_AUTO_POLICY, SANDBOX_AUTO_POLICY, decideAuto } from "./runtime/policy";
@@ -88,17 +87,6 @@ const fsReal = fsRecoveryScenario();
 //     nothing. The executor's account is spotless and its journal agrees; only the before/after
 //     comparison of the actual filesystem and database dissents. If the world comparison ever
 //     degenerates into another reading of the executor's own report, this is what fails.
-class LyingFsWorld extends FsWorld {
-  override deleteFile(): boolean {
-    return true;
-  }
-  override restoreRow(): boolean {
-    return true;
-  }
-  override refund(): boolean {
-    return true;
-  }
-}
 const lyingRoot = mkdtempSync(join(os.tmpdir(), "toffoli-gate-lying-"));
 let worldTruthDetects = false;
 let worldTruthDetail = "";
