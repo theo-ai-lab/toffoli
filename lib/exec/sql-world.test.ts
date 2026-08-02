@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SqlWorld, sqlRunInverse, sqlWorldSelfCheck } from "./sql-world";
+import { SqlWorld, sqlRunInverse, sqlWorldSelfCheck, renderSelfCheck } from "./sql-world";
 import { classifyAction } from "../engine/restitute";
 import { planResumable } from "../engine/resumable";
 import { safeExecute } from "../runtime/safe-executor";
@@ -16,6 +16,24 @@ describe("SqlWorld — real node:sqlite recovery world", () => {
     const failed = r.checks.filter((c) => !c.ok).map((c) => `${c.name} — ${c.detail ?? ""}`);
     expect(failed).toEqual([]);
     expect(r.pass).toBe(true);
+  });
+
+  it("renders a self-check report that names the failing check rather than only a verdict", () => {
+    const passing = renderSelfCheck(sqlWorldSelfCheck());
+    expect(passing).toContain("RESULT: PASS");
+    expect(passing).not.toContain("✗");
+
+    // A report that says FAIL without saying WHAT failed is not actionable.
+    const failed = renderSelfCheck({
+      pass: false,
+      checks: [
+        { name: "damage really happened", ok: true },
+        { name: "ledger net back to baseline", ok: false, detail: "after=30" },
+      ],
+    });
+    expect(failed).toContain("RESULT: FAIL (1/2 checks)");
+    expect(failed).toContain("✗ ledger net back to baseline  — after=30");
+    expect(failed).toContain("✓ damage really happened");
   });
 
   it("recovers the recoverable subset through safeExecute + sqlRunInverse, restoring rows + ledger to baseline", async () => {

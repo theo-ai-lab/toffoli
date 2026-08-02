@@ -6,11 +6,14 @@
  * database: genuine SQL `INSERT`/`UPDATE`/`DELETE` against a `node:sqlite` store, a real soft-delete
  * trash table, a prior-value capture table that makes a destructive `UPDATE` reversible, a persisted
  * money ledger, and idempotency markers in a table — so a replayed compensation is a no-op even
- * across a *process restart* when backed by a file (the marker row survives). Same inverse surface
- * (`RecoveryWorld`), so the EXACT executor and safe-executor run against it unchanged; the only
- * difference is the I/O is real SQL and fallible (a locked DB / constraint error now throws, and the
- * runtime's transient-retry + circuit-breaker fire on it — see lib/runtime/resilience.ts, whose
- * `isTransient` matches SQLite "database is locked"/"busy").
+ * across a *process restart* when backed by a file (the marker row survives). Those markers are
+ * named after the action id, so the id counter is allocated from the database too (see `nextId`);
+ * a counter that restarted with the process would let a NEW compensation inherit an old marker and
+ * be skipped while reporting success. Same inverse surface (`RecoveryWorld`), so the EXACT executor
+ * and safe-executor run against it unchanged; the only difference is the I/O is real SQL and
+ * fallible (a locked DB / constraint error now throws, and the runtime's transient-retry +
+ * circuit-breaker fire on it — see lib/runtime/resilience.ts, whose `isTransient` matches SQLite
+ * "database is locked"/"busy").
  *
  * Why it stays low-maintenance and safe to leave unattended:
  *  - Everything lives in ONE database you pass in. The default is an in-memory `:memory:` DB, so a
@@ -65,6 +68,7 @@ export class SqlWorld implements RecoveryWorld {
     getApplied: ReturnType<DatabaseSync["prepare"]>;
     insApplied: ReturnType<DatabaseSync["prepare"]>;
     delApplied: ReturnType<DatabaseSync["prepare"]>;
+    bumpSeq: ReturnType<DatabaseSync["prepare"]>;
     selFiles: ReturnType<DatabaseSync["prepare"]>;
     selData: ReturnType<DatabaseSync["prepare"]>;
     selTrash: ReturnType<DatabaseSync["prepare"]>;
@@ -83,8 +87,10 @@ export class SqlWorld implements RecoveryWorld {
       CREATE TABLE IF NOT EXISTS outbox     (seq INTEGER PRIMARY KEY, line TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS ledger     (id INTEGER PRIMARY KEY CHECK (id = 1), usd REAL NOT NULL);
       CREATE TABLE IF NOT EXISTS applied    (marker TEXT PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS op_seq     (id INTEGER PRIMARY KEY CHECK (id = 1), next INTEGER NOT NULL);
     `);
     this.db.prepare(`INSERT OR IGNORE INTO ledger (id, usd) VALUES (1, 0)`).run();
+    this.db.prepare(`INSERT OR IGNORE INTO op_seq (id, next) VALUES (1, 0)`).run();
 
     const p = (sql: string) => this.db.prepare(sql);
     this.q = {
@@ -105,6 +111,9 @@ export class SqlWorld implements RecoveryWorld {
       getApplied: p(`SELECT 1 AS x FROM applied WHERE marker = ?`),
       insApplied: p(`INSERT OR IGNORE INTO applied (marker) VALUES (?)`),
       delApplied: p(`DELETE FROM applied WHERE marker = ?`),
+      // Allocate-and-read in ONE statement, so two live handles on the same file cannot both take
+      // the same number the way a read-then-write pair could.
+      bumpSeq: p(`UPDATE op_seq SET next = next + 1 WHERE id = 1 RETURNING next`),
       selFiles: p(`SELECT path, content FROM files ORDER BY path`),
       selData: p(`SELECT rkey, value FROM data_rows ORDER BY rkey`),
       selTrash: p(`SELECT rkey, value FROM trash_rows ORDER BY rkey`),
@@ -140,8 +149,29 @@ export class SqlWorld implements RecoveryWorld {
     return ok;
   }
 
+  /**
+   * Allocate the next action number FROM THE DATABASE.
+   *
+   * The idempotency keys the executor uses are derived from the action id
+   * (`restitution:${action.id}:${method}`) and the `applied` markers are DURABLE. So an id that
+   * repeats once the database is reopened makes a brand-new compensation look like a replay of an
+   * old one: `once()` finds the marker, skips the effect, and returns `true` — a restoration
+   * reported for a row still in the trash, or a refund reported for money still taken. An in-memory
+   * counter cannot see the ids a previous process already issued from the same file, so the counter
+   * has to live where the markers live. Same reason the outbox key can no longer collide.
+   *
+   * Scope: this guarantees uniqueness for the life of a database created by this version. A file
+   * written by an earlier version carries no record of the ids it already handed out, so its
+   * counter restarts from zero — such a database must be recreated, not upgraded in place.
+   */
   private nextId(): string {
-    this.seq += 1;
+    const row = this.q.bumpSeq.get() as { next: number } | undefined;
+    if (row === undefined) {
+      // The constructor seeds this row and the CHECK constraint keeps it singular; a missing row
+      // means the database was tampered with. Failing loudly beats minting a colliding id.
+      throw new Error("op_seq row is missing — this database cannot mint unique action ids");
+    }
+    this.seq = row.next;
     return `op${this.seq}`;
   }
   private stamp(): string {
