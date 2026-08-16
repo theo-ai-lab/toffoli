@@ -3,11 +3,24 @@
  *
  * The sandbox `World` proves the recovery loop on an in-memory model. `FsWorld` proves it on the
  * ACTUAL disk: genuine file writes/deletes, a persisted JSON row store with a real trash directory,
- * a persisted money ledger, and idempotency markers written to disk — so a replayed compensation is
- * a no-op even across a *process restart* (the marker survives). Same inverse surface
+ * a persisted money ledger, and a durable write-ahead claim journal (`lib/exec/fs-journal.ts`) — so
+ * a replayed compensation is a no-op even across a *process restart*, and a compensation interrupted
+ * BY that restart is reported as unresolved rather than as done. Same inverse surface
  * (`RecoveryWorld`), so the EXACT executor and safe-executor run against it unchanged; the only
  * difference is the I/O is real and fallible (ENOENT, EACCES, partial writes are now possible, not
  * simulated). This is the seam a production backend slots into.
+ *
+ * What the journal changed, and what it did not: exactly-once now holds against CONCURRENT callers
+ * on one root (the claim is a single exclusive-create syscall), and a crash between the claim and
+ * the effect can no longer be reported as a success. The ledger's own read-modify-write is still
+ * not serialisable — two callers compensating DIFFERENT keys at the same time can still lose a
+ * ledger update. That is a known remaining gap, not a solved one.
+ *
+ * Because those records are durable, the NAMES they are filed under have to be too. Every
+ * idempotency key is derived from the action id (`restitution:${action.id}:${method}`), so the
+ * action-id counter is allocated from the root as well (see `nextId`) — a counter that restarted
+ * with the process would let a brand-new compensation inherit the record of an unrelated old one and
+ * be skipped while reporting success.
  *
  * Why it stays low-maintenance and safe to leave unattended:
  *  - Everything lives under ONE root directory you pass in (use an os.tmpdir() path). All file paths
@@ -19,10 +32,10 @@
  * Zero runtime dependencies (node:fs / node:path / node:os / node:crypto only).
  */
 
-import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { AgentAction } from "../engine/types";
+import { FsJournal, type ChaosSchedule, type JournalRecord } from "./fs-journal";
 import type { RecoveryWorld, WorldState } from "./world";
 
 /**
@@ -36,11 +49,37 @@ function seg(s: string): string {
   }
   return s;
 }
+/**
+ * The highest `op<n>` this root has already handed out, or 0 for a root that has issued none. A
+ * starting HINT for `nextId`'s probe, never the authority on what is free — see `nextId`.
+ */
+function highestAllocatedId(dir: string): number {
+  let max = 0;
+  for (const name of readdirSync(dir)) {
+    const m = /^op(\d+)$/.exec(name);
+    if (m === null) continue;
+    const n = Number(m[1]);
+    // A number too large to increment exactly would make the probe loop stop advancing. Junk that
+    // big is not something this code ever wrote, so skip it rather than hang on it.
+    if (Number.isSafeInteger(n) && n > max) max = n;
+  }
+  return max;
+}
+
 /** Split a `${table}:${id}` row key on the FIRST colon (ids may contain colons). */
 function splitKey(key: string): [string, string] | null {
   const i = key.indexOf(":");
   if (i < 0) return null;
   return [key.slice(0, i), key.slice(i + 1)];
+}
+
+export interface FsWorldOptions {
+  /**
+   * Deterministic fault injection for the durability tests. Production passes nothing. See
+   * lib/exec/chaos.ts — this is what lets a crash or a competing claim be placed at an exact point
+   * instead of being raced for.
+   */
+  chaos?: ChaosSchedule;
 }
 
 export class FsWorld implements RecoveryWorld {
@@ -50,45 +89,52 @@ export class FsWorld implements RecoveryWorld {
   private readonly trashDir: string;
   private readonly tablesDir: string;
   private readonly outboxDir: string;
-  private readonly appliedDir: string;
+  private readonly idsDir: string;
   private readonly ledgerPath: string;
+  private readonly journal: FsJournal;
+  /** The last action number THIS handle allocated. Also the next candidate to probe — see `nextId`. */
   private seq = 0;
+  /** Whether `seq` has been raised to the root's durable high-water mark yet (a hint; see `nextId`). */
+  private seqFloorRead = false;
+  private tmpSeq = 0;
 
-  constructor(root: string) {
+  constructor(root: string, opts: FsWorldOptions = {}) {
     this.root = resolve(root);
     this.filesDir = join(this.root, "files");
     this.rowsDir = join(this.root, "rows");
     this.trashDir = join(this.root, "trash", "rows");
     this.tablesDir = join(this.root, "tables");
     this.outboxDir = join(this.root, "outbox");
-    this.appliedDir = join(this.root, "applied");
+    this.idsDir = join(this.root, "ids");
     this.ledgerPath = join(this.root, "ledger.json");
-    for (const d of [this.filesDir, this.rowsDir, this.trashDir, this.tablesDir, this.outboxDir, this.appliedDir]) {
+    for (const d of [this.filesDir, this.rowsDir, this.trashDir, this.tablesDir, this.outboxDir, this.idsDir]) {
       mkdirSync(d, { recursive: true });
     }
+    // The journal owns `applied/` — same directory the marker scheme used, now holding durable
+    // records instead of empty files. A legacy zero-byte marker still reads as applied.
+    this.journal = new FsJournal(join(this.root, "applied"), opts.chaos === undefined ? {} : { chaos: opts.chaos });
     if (!existsSync(this.ledgerPath)) this.writeLedger(0);
   }
 
-  // ── idempotency persisted to disk (survives a process restart) ──
-  private once(idemKey: string, fn: () => boolean): boolean {
-    const marker = join(this.appliedDir, createHash("sha256").update(idemKey).digest("hex").slice(0, 32));
-    if (existsSync(marker)) return true; // already applied → skip, report success (never re-apply)
-    // MARKER-FIRST: claim the key BEFORE the side effect. This is what makes the one non-self-idempotent
-    // inverse (refund) safe across a crash: if the marker write itself fails (EACCES/ENOSPC), the side
-    // effect never runs; if the process dies in the tiny window after the marker but before the side
-    // effect, a replay safely SKIPS — a rare lost-compensation, which is the asymmetric-cost-correct
-    // failure for money (never refund twice). If the side effect FAILS or no-ops, we release the claim
-    // so a legitimate retry can re-run it.
-    writeFileSync(marker, "");
-    let ok = false;
-    try {
-      ok = fn();
-    } catch (err) {
-      rmSync(marker, { force: true }); // failed attempt → release the claim so a retry can re-run
-      throw err;
-    }
-    if (!ok) rmSync(marker, { force: true }); // no-op / not found → release the claim
-    return ok;
+  /**
+   * Apply an inverse at most once per idempotency key, through the durable write-ahead journal.
+   *
+   * `replaySafe` is the load-bearing argument: it declares whether recovery may REDO this effect
+   * after a crash left the claim unresolved. Self-idempotent inverses (delete, restore) say yes and
+   * are recovered silently; `refund` says no, so an unresolved claim is raised as a typed
+   * `JournalError` and becomes a failed saga step. What it can no longer do is what the old
+   * marker scheme did — report `true` for a compensation that never happened.
+   */
+  private once(idemKey: string, method: string, replaySafe: boolean, fn: () => boolean): boolean {
+    return this.journal.runOnce({ key: idemKey, method, replaySafe }, fn).status !== "noop";
+  }
+
+  /**
+   * Compensations that were claimed and never resolved — what a crash-recovery pass must deal with.
+   * A `replaySafe` entry can simply be re-run; the rest need a human.
+   */
+  unresolvedCompensations(): JournalRecord[] {
+    return this.journal.unresolved();
   }
 
   // ── safe path mapping ──
@@ -104,13 +150,62 @@ export class FsWorld implements RecoveryWorld {
     return join(trash ? this.trashDir : this.rowsDir, seg(table), `${seg(id)}.json`);
   }
 
+  /**
+   * Allocate the next action number FROM THE ROOT, not from this process.
+   *
+   * THE CONTRACT: an action id handed out for a root is never handed out again for that root, for as
+   * long as the root's `ids/` and `applied/` directories live together. That is what the durable
+   * journal needs, because every idempotency key is derived from the action id and the records are
+   * durable: an id that repeats after a reopen makes a compensation that has NEVER run look like a
+   * replay of one that has, so `once()` skips the effect and returns `true` — a restoration reported
+   * for a row still in the trash, a refund reported for money still taken. (`replaySafe:false` is no
+   * defence: an `applied` record is answered before the indeterminate check is reached.)
+   *
+   * HOW: the id IS its own durable record. `op<n>` is allocated by exclusive-creating the file
+   * `ids/op<n>`; on EEXIST the number is already spoken for and we walk forward. This is the same
+   * primitive as the journal's claim — one syscall, no check-then-use — so two live handles on one
+   * root cannot take the same number either.
+   *
+   * CRASH SEMANTICS, deliberately: the file is empty and its NAME carries the whole fact, so there
+   * is no torn write to recover from — `wx` either creates the directory entry or it does not. A
+   * crash between allocating an id and using it LEAKS that id (the sequence skips a number) and can
+   * never reuse it, which is the safe direction: a leaked number costs nothing, a reused one
+   * fabricates a compensation. Same scope caveat as the journal (lib/exec/fs-journal.ts): no fsync,
+   * so this is crash-safe against process death, not against machine power loss.
+   *
+   * SCOPE: this guarantees uniqueness for the life of a root created by this version. A root written
+   * by an earlier one has no `ids/` directory and therefore no record of the ids it already issued,
+   * so its counter restarts from zero — such a root must be recreated, not upgraded in place.
+   */
   private nextId(): string {
-    this.seq += 1;
-    return `op${this.seq}`;
+    // First allocation on this handle: start from the root's high-water mark instead of re-probing
+    // every number it has ever issued. A HINT only — the exclusive create below is the authority, so
+    // a stale or racing hint costs extra probes, never uniqueness.
+    if (!this.seqFloorRead) {
+      this.seq = Math.max(this.seq, highestAllocatedId(this.idsDir));
+      this.seqFloorRead = true;
+    }
+    for (;;) {
+      const n = this.seq + 1;
+      const id = `op${n}`;
+      try {
+        writeFileSync(join(this.idsDir, id), "", { flag: "wx" }); // THE ATOMIC ALLOCATION
+        this.seq = n;
+        return id;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
+          throw new Error(`could not allocate an action id under ${this.idsDir}: ${(err as Error).message}`, { cause: err });
+        }
+        this.seq = n; // taken by an earlier process or a live peer — walk forward
+      }
+    }
   }
   private stamp(): string {
-    // deterministic monotonic timestamp (no Date.now — keeps runs reproducible, like World)
-    return `2026-06-06T09:${String(this.seq).padStart(2, "0")}:00Z`;
+    // Deterministic monotonic timestamp (no Date.now — keeps runs reproducible, like World). Carried
+    // into hours rather than padded into the minute field: the sequence is durable now, so it passes
+    // 59 on a long-lived root, and `09:100` sorts BEFORE `09:99` — which would silently reorder the
+    // plan, since LIFO compensation order is a string sort on `at` (lib/engine/plan.ts).
+    return new Date(Date.UTC(2026, 5, 6, 9, 0, 0) + this.seq * 60_000).toISOString().replace(/\.\d{3}Z$/, "Z");
   }
   private readLedger(): number {
     if (!existsSync(this.ledgerPath)) return 0; // legitimately absent → $0
@@ -118,7 +213,11 @@ export class FsWorld implements RecoveryWorld {
     return (JSON.parse(readFileSync(this.ledgerPath, "utf8")) as { usd?: number }).usd ?? 0;
   }
   private writeLedger(usd: number): void {
-    const tmp = `${this.ledgerPath}.tmp`;
+    // The temp name must be unique PER WRITER. A single fixed `ledger.json.tmp` is shared state:
+    // two processes writing at once clobber each other's temp file and the rename dies with ENOENT
+    // (observed in the concurrency probe). Unique name → the rename is a genuine atomic replace.
+    this.tmpSeq += 1;
+    const tmp = `${this.ledgerPath}.${process.pid}.${this.tmpSeq}.tmp`;
     writeFileSync(tmp, JSON.stringify({ usd }));
     renameSync(tmp, this.ledgerPath); // atomic replace — no torn ledger if a crash interrupts the write
   }
@@ -166,7 +265,8 @@ export class FsWorld implements RecoveryWorld {
 
   // ── inverse operations the executor calls (idempotent per key) ──
   deleteFile(path: string, idemKey: string): boolean {
-    return this.once(idemKey, () => {
+    // replay-safe: deleting an already-deleted file is indistinguishable from deleting it once.
+    return this.once(idemKey, "delete", true, () => {
       const p = this.filePath(path);
       if (!existsSync(p)) return false;
       rmSync(p);
@@ -174,7 +274,8 @@ export class FsWorld implements RecoveryWorld {
     });
   }
   restoreRow(key: string, idemKey: string): boolean {
-    return this.once(idemKey, () => {
+    // replay-safe: the row is either still in trash (move it) or already back (no-op).
+    return this.once(idemKey, "restore", true, () => {
       const parts = splitKey(key);
       if (!parts) return false;
       const [table, id] = parts;
@@ -187,7 +288,9 @@ export class FsWorld implements RecoveryWorld {
     });
   }
   refund(amountUsd: number, idemKey: string): boolean {
-    return this.once(idemKey, () => {
+    // NOT replay-safe: a second refund is a second movement of real money. An unresolved claim is
+    // escalated as a typed JournalError rather than redone or silently reported as done.
+    return this.once(idemKey, "refund", false, () => {
       this.writeLedger(this.readLedger() - amountUsd);
       return true;
     });

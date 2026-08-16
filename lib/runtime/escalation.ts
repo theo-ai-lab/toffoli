@@ -84,7 +84,14 @@ export class ConsoleSink implements EscalationSink {
 export class MultiSink implements EscalationSink {
   constructor(private readonly sinks: EscalationSink[]) {}
   async emit(record: OversightRecord): Promise<void> {
-    await Promise.allSettled(this.sinks.map((s) => Promise.resolve(s.emit(record))));
+    // `async` on the callback, not Promise.resolve(s.emit(...)): a sink that
+    // throws SYNCHRONOUSLY throws during .map(), before Promise.allSettled is
+    // ever reached, so the whole fan-out aborts and the sinks after it never
+    // see the record. That is the exact failure this class exists to prevent,
+    // and a synchronous throw is the common case -- ConsoleSink and every
+    // hand-written sink are synchronous. An async callback turns the throw into
+    // a rejected promise that allSettled can absorb.
+    await Promise.allSettled(this.sinks.map(async (s) => s.emit(record)));
   }
 }
 

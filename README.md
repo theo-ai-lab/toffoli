@@ -175,15 +175,21 @@ Built to a research bar, not only an applied one. Full detail lives in [`THEORY.
   dimensions stay untouched (`npm run recover` → restored 4/4; irreversible auto-executed: 0). The
   same executor runs against a **real-filesystem adapter**
   ([`lib/exec/fs-world.ts`](lib/exec/fs-world.ts), `npm run recover:fs`) — real files, a trash dir,
-  a persisted ledger, on-disk idempotency markers (a replay is a no-op even across a process restart)
-  — driven *through the full safety floor*, so `TOFFOLI_EXECUTE_DISABLED=1 npm run recover:fs` plans
-  only and mutates nothing. It's the seam a production backend slots into.
+  a persisted ledger, and a durable write-ahead claim journal
+  ([`lib/exec/fs-journal.ts`](lib/exec/fs-journal.ts)) so a replay is a no-op across a process
+  restart, exactly-once holds against concurrent callers on one root, and a compensation interrupted
+  by a crash is reported unresolved instead of done — driven *through the full safety floor*, so
+  `TOFFOLI_EXECUTE_DISABLED=1 npm run recover:fs` plans only and mutates nothing. It's the seam a
+  production backend slots into.
 - **Attested recovery context** (the novel *application*; the crypto primitives are mature). A caller
   can require every safe-direction signal (`recoverable`, `externalized:false`, a captured prior, an
   open transaction) to carry a valid signature bound to the run; `sanitizeWithAttestations()` strips
   any *unattested* signal **before** classification, so the engine fails safe rather than trust an
   agent self-report. It is an explicit caller-wired guard, not an automatic engine property — Ed25519
-  by default ([`lib/engine/attest.ts`](lib/engine/attest.ts), THEORY §7–§8).
+  by default ([`lib/engine/attest.ts`](lib/engine/attest.ts), THEORY §7–§8). The wire is the MCP
+  tools' optional `attest` parameter; leave it out and the caller's `recoverable` is believed as
+  given — one forged boolean turns a hard delete into an auto-executable REVERSIBLE at confidence
+  1.0. That default-off blast radius is a test in the suite, not a footnote.
 - **At-scale statistics.** A seeded generator produces a 400-case distribution with a held-out split
   and a bootstrap CI (IRREVERSIBLE recall 0.83, 95% CI 0.72–0.92, n=53) — power the tiny hand-labeled
   set can't give, clearly marked synthetic-at-scale, never a prevalence claim.
@@ -196,7 +202,11 @@ each control is crosswalked to its primary source in [`SAFETY.md`](SAFETY.md):
 - an **enforced kill-switch** at a single mutation chokepoint, and **plan-only by default** behind a
   plan-bound confirm token;
 - a **write-ahead journal** whose anti-fabrication invariant means no action is reported undone unless
-  the durable log confirms it (the Replit failure mode, designed against);
+  the durable log confirms it (the Replit failure mode, designed against). That check compares the
+  executor's report against the executor's own journal — one witness asked twice — so the gate
+  *additionally* runs the real on-disk scenario and diffs the actual files, rows and ledger against
+  the pre-damage baseline, with a negative control that reports success while touching nothing
+  ([ADR-001](docs/decisions/ADR-001-world-truth-in-the-gate.md));
 - a **two-axis auto-execute policy** (reversibility class × confidence + a default-deny allowlist; the
   judge may only *lower* autonomy, never grant it), **bounded transient-only retries + per-backend
   circuit breakers**, and **escalation as a durable path** — a failed compensation is a first-class
@@ -272,6 +282,8 @@ npm run speculate   # reversibility-gated speculative execution: speculate-commi
 npm run plan        # deterministic-first receding-horizon planning: propose→prune(exact,free)→score→step→replan
 npm run trace       # the recovery loop as OpenTelemetry spans (ship to LangSmith/AgentOps)
 npm run gate        # the recovery-soundness gate CI runs (fails on a regression)
+npm run gate:mutate # falsify that gate: break each guarded property in a scratch copy, one at a
+                    #   time, and fail unless every mutation is CAUGHT
 ```
 
 Prefer one binary? `npm run build` packages every command above as a single `toffoli <command>` bin

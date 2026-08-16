@@ -8,7 +8,8 @@
  *   1. RESTORATION — the recoverable subset on disk matches the pre-damage baseline.
  *   2. RESTRAINT  — the irreversible dimensions (dropped table, sent email) are left untouched.
  *   3. DURABLE IDEMPOTENCY — a fresh `FsWorld` over the SAME root replays the plan as a pure no-op
- *      (markers persisted to disk), i.e. recovery survives a process restart without double-applying.
+ *      (the claim journal is persisted to disk), i.e. recovery survives a process restart without
+ *      double-applying.
  *
  * Nothing here touches anything outside a throwaway temp directory, which is removed at the end.
  */
@@ -51,19 +52,69 @@ export interface FsRecoveryReport {
   recoverableMatch: { files: boolean; rows: boolean; ledger: boolean };
   recoverableRestored: boolean;
   irreversibleUntouched: boolean;
+  /** Per-dimension result of the SECOND damage->recover cycle over the same root. */
+  secondCycleMatch: { files: boolean; rows: boolean; ledger: boolean };
+  /** Did a REOPENED world recover a second, different set of damage? (d6d7472's precondition.) */
+  secondCycleRestored: boolean;
+  /** How many restorations the second cycle REPORTED, regardless of what the disk did. */
+  secondCycleReported: number;
   /** A fresh FsWorld over the same root replayed the plan with zero additional mutation. */
   idempotentOnReplay: boolean;
+  /** What the replay REPORTED, so a total failure cannot masquerade as a no-op. */
+  replayReport: { compensationFailed: number; blocked: number };
   totals: { actions: number; recoverable: number; irreversible: number; restored: number };
+}
+
+/**
+ * A world that REPORTS every compensation as a success and changes nothing.
+ *
+ * The negative control for the gate's world-truth check: its executor account is
+ * spotless and its journal agrees, so only a before/after comparison of the real disk
+ * can dissent. Defined ONCE and exported, because it was briefly defined twice — in
+ * `lib/gate.ts` and in `fs-recover.gate.test.ts` — and a control that exists in two
+ * copies drifts. If `FsWorld` gains a compensating method and only one copy overrides
+ * it, the two detectors stop agreeing and the GATE is the one that silently weakens.
+ */
+export class LyingFsWorld extends FsWorld {
+  override deleteFile(): boolean {
+    return true;
+  }
+  override restoreRow(): boolean {
+    return true;
+  }
+  override refund(): boolean {
+    return true;
+  }
 }
 
 /**
  * Run the canonical damage→recover scenario on a real FsWorld, THROUGH the full operational-safety
  * floor (the deploy path) — not the bare saga loop. Pass `keep:true` to leave the temp dir on disk.
+ *
+ * The env is PINNED on every `safeExecute` below. Reading ambient `process.env` made
+ * `TOFFOLI_EXECUTE_DISABLED=1 npm run gate` fail three checks with "a world that changed nothing was
+ * accepted" — the repo's own advertised kill-switch accusing the code of fabrication. Every
+ * `safeExecute` in lib/gate.ts already pins it, so this follows the same convention.
  */
-export function fsRecoveryScenario(opts: { root?: string; keep?: boolean } = {}): FsRecoveryReport {
+export function fsRecoveryScenario(
+  opts: {
+    root?: string;
+    keep?: boolean;
+    /**
+     * Build the world under test. Injected so the gate can run a NEGATIVE CONTROL: a world that
+     * reports every compensation as a success and touches nothing. The executor and its journal
+     * agree in that case, so only the before/after disk comparison below can tell — which is the
+     * whole reason this scenario exists rather than trusting `fabricationCheck`.
+     *
+     * A factory, not an instance: the replay pass builds a second world over the same root.
+     */
+    makeWorld?: (root: string) => FsWorld;
+  } = {},
+): FsRecoveryReport {
   const root = opts.root ?? mkdtempSync(join(tmpdir(), "toffoli-fs-"));
+  const makeWorld = opts.makeWorld ?? ((r: string) => new FsWorld(r));
   try {
-    const world = new FsWorld(root);
+    const world = makeWorld(root);
     world.seedRow("orders", "t1", { is_test: true });
     world.seedRow("orders", "t2", { is_test: true });
     world.seedTable("orders_archive");
@@ -86,7 +137,7 @@ export function fsRecoveryScenario(opts: { root?: string; keep?: boolean } = {})
     // invariant, policy, and a plan-bound confirm token authorizing this exact plan. mode:"execute"
     // because FsWorld is a real adapter — and TOFFOLI_EXECUTE_DISABLED=1 forces dry-run here too.
     const token = computeConfirmToken(plan);
-    const result = safeExecute(plan, world, { mode: "execute", confirmToken: token, policy: SANDBOX_AUTO_POLICY });
+    const result = safeExecute(plan, world, { mode: "execute", env: {} as NodeJS.ProcessEnv, confirmToken: token, policy: SANDBOX_AUTO_POLICY });
     const after = world.snapshot();
 
     const recoverableMatch = {
@@ -99,11 +150,53 @@ export function fsRecoveryScenario(opts: { root?: string; keep?: boolean } = {})
       JSON.stringify(after.tables) === JSON.stringify(damaged.tables) && JSON.stringify(after.outbox) === JSON.stringify(damaged.outbox);
 
     // DURABLE IDEMPOTENCY: a brand-new FsWorld over the same on-disk root replays the plan. Because
-    // the applied-markers are persisted, every inverse is a skip — no double-refund, no corruption.
-    const replayWorld = new FsWorld(root);
-    safeExecute(plan, replayWorld, { mode: "execute", confirmToken: token, policy: SANDBOX_AUTO_POLICY });
+    // the claim journal is persisted, every inverse is a skip — no double-refund, no corruption.
+    const replayWorld = makeWorld(root);
+    const replayResult = safeExecute(plan, replayWorld, { mode: "execute", env: {} as NodeJS.ProcessEnv, confirmToken: token, policy: SANDBOX_AUTO_POLICY });
     const afterReplay = replayWorld.snapshot();
-    const idempotentOnReplay = JSON.stringify(afterReplay) === JSON.stringify(after);
+    // The snapshot alone cannot tell "replayed as a no-op" from "every step errored and
+    // the saga blocked the rest" — both leave the world untouched. Deleting the
+    // already-applied short-circuit in fs-journal made the replay report
+    // restored=0 compFailed=1 blocked=3 and this check still said "durable idempotency".
+    // So the REPORT is part of the assertion: a clean replay escalates nothing.
+    const replayWasClean = replayResult.compensationFailed === 0 && replayResult.blocked === 0;
+    const idempotentOnReplay = replayWasClean && JSON.stringify(afterReplay) === JSON.stringify(after);
+
+    // SECOND CYCLE over the SAME on-disk root — the precondition d6d7472 actually needs.
+    //
+    // Everything above damages once. The replay reuses the SAME plan object with the same
+    // action ids, so the id allocator is never called a second time and the defect this
+    // scenario was built to catch is structurally invisible. Measured by reintroducing it:
+    // with nextId() reverted to the ephemeral counter the whole gate still passed 19/19 while
+    // the unit suite failed 7 of 16. A gate that cannot fail for its own motivating defect is
+    // a gate that says less than it sounds like.
+    //
+    // A reopened world damaging a fresh set of actions is what forces new ids against the
+    // durable applied/ markers. With an instance-local counter the second cycle's ids collide
+    // with the first's, every compensation short-circuits as already-applied, and the world
+    // does NOT return to baseline — while the executor still reports restorations.
+    const cycle2World = makeWorld(root);
+    const cycle2Baseline = cycle2World.snapshot();
+    const cycle2Actions: AgentAction[] = [
+      cycle2World.writeFile("/backups/orders-2.bak", "id,is_test"),
+      cycle2World.softDeleteRow("orders", "t1"),
+      cycle2World.charge("enrich-api", 7),
+    ];
+    const cycle2Plan = planResumable(cycle2Actions, cycle2Actions.map(classify));
+    const cycle2Result = safeExecute(cycle2Plan, cycle2World, {
+      mode: "execute",
+      env: {} as NodeJS.ProcessEnv,
+      confirmToken: computeConfirmToken(cycle2Plan),
+      policy: SANDBOX_AUTO_POLICY,
+    });
+    const afterCycle2 = cycle2World.snapshot();
+    const secondCycleMatch = {
+      files: sameRecord(afterCycle2.files, cycle2Baseline.files),
+      rows: sameRecord(afterCycle2.rows, cycle2Baseline.rows),
+      ledger: afterCycle2.ledgerUsd === cycle2Baseline.ledgerUsd,
+    };
+    const secondCycleRestored =
+      secondCycleMatch.files && secondCycleMatch.rows && secondCycleMatch.ledger;
 
     return {
       root,
@@ -112,6 +205,10 @@ export function fsRecoveryScenario(opts: { root?: string; keep?: boolean } = {})
       recoverableRestored,
       irreversibleUntouched,
       idempotentOnReplay,
+      replayReport: { compensationFailed: replayResult.compensationFailed, blocked: replayResult.blocked },
+      secondCycleMatch,
+      secondCycleRestored,
+      secondCycleReported: cycle2Result.restored,
       totals: {
         actions: actions.length,
         recoverable: classifications.filter((c) => c.class === "REVERSIBLE" || c.class === "COMPENSABLE").length,
@@ -136,7 +233,7 @@ export function renderFsReport(r: FsRecoveryReport): string {
     `  executed ${r.result.steps.length} compensations → restored ${r.result.restored}, failed ${r.result.compensationFailed}, unsupported ${r.result.unsupported}, blocked ${r.result.blocked}`,
     `  recoverable subset matches pre-damage baseline ON DISK: ${r.recoverableRestored ? "YES" : "NO"}  (files ${m.files ? "✓" : "✗"}  rows ${m.rows ? "✓" : "✗"}  ledger ${m.ledger ? "✓" : "✗"})`,
     `  RESTRAINT — irreversible dimensions left untouched: ${r.irreversibleUntouched ? "YES (dropped table + sent email unchanged)" : "NO ✗"}`,
-    `  DURABLE IDEMPOTENCY — a fresh process replays the plan as a no-op: ${r.idempotentOnReplay ? "YES (markers persisted; no double-apply)" : "NO ✗"}`,
+    `  DURABLE IDEMPOTENCY — a fresh process replays the plan as a no-op: ${r.idempotentOnReplay ? "YES (claim journal persisted; no double-apply)" : "NO ✗"}`,
     `  escalated to a human (never auto-executed): ${r.result.escalated}`,
     `  ${"-".repeat(74)}`,
     `  RESULT: restored ${r.totals.restored}/${r.totals.recoverable} recoverable actions to a byte-identical baseline`,

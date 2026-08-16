@@ -60,8 +60,9 @@ export type ActionOp =
  * recoverable verdict. They MUST come from trusted runtime instrumentation that observed the real
  * system (a backup catalog, the payment processor, the mail server), NEVER copied from the agent's
  * own narration. If the action log is agent-authored and these can't be attested, OMIT them: the
- * floor then abstains or fails safe to IRREVERSIBLE rather than trust a self-report. (Cryptographic
- * attestation of recovery context is planned hardening — see SPEC.md.)
+ * floor then abstains or fails safe to IRREVERSIBLE rather than trust a self-report. Cryptographic
+ * attestation of recovery context makes this enforceable rather than advisory, opt-in per caller —
+ * see lib/engine/attest.ts (`sanitizeWithAttestations`) and THEORY.md §7.
  */
 export interface ResourceRef {
   /** e.g. "file" | "db.row" | "payment" | "email" | "deployment" | "blob". */
@@ -167,7 +168,8 @@ export interface Classification {
 /** Whether a compensation restores the EXACT prior state, only EQUIVALENT state, or none is needed. */
 export type Restoration = "exact" | "semantic" | "none";
 
-/** A typed undo/compensate intent. Toffoli PLANS these; in v1 it does not execute them. */
+/** A typed undo/compensate intent. Planning one never runs it: execution is a separate, gated step
+ *  through lib/runtime/safe-executor.ts (plan-only by default, behind a plan-bound confirm token). */
 export interface CompensatingAction {
   forActionId: string;
   /** The reversal to run, e.g. "fs.restore", "sql.delete", "stripe.refund", "http.delete". */

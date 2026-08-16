@@ -404,7 +404,7 @@ export async function speculativeExecute<W extends RecoveryWorld>(
   };
 }
 
-// ── the SUITE cascade-telemetry contract (every repo emits this shape per cheap→expensive boundary) ──
+// ── the cascade-telemetry contract (one slice per cheap→expensive boundary) ──
 
 export interface CascadeTelemetry {
   /** The cheap→expensive boundary this slice measures. */
@@ -432,7 +432,7 @@ export interface CascadeTelemetry {
 }
 
 /**
- * Reduce per-action outcomes to the suite's cascade-telemetry slice. ZERO model spend — it is a pure
+ * Reduce per-action outcomes to the cascade-telemetry slice. ZERO model spend — it is a pure
  * count over the deterministic-vs-deterministic comparison the gate already performed.
  *
  *   alpha             — committed speculations + reads, over n (the cheap tier resolved these losslessly).
@@ -475,7 +475,7 @@ export function cascadeTelemetry(outcomes: SpeculativeOutcome[]): CascadeTelemet
   };
 }
 
-/** A one-line, recruiter-legible rendering of a telemetry slice (percentages rounded to 1 dp). */
+/** A one-line, human-legible rendering of a telemetry slice (percentages rounded to 1 dp). */
 export function renderTelemetrySentence(t: CascadeTelemetry): string {
   const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
   // Name the (1-alpha) remainder precisely, without mis-attributing it. It has two parts: the

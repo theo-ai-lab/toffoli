@@ -1,7 +1,7 @@
 /**
  * Toffoli — GUIDE-GATED ADVERSARIAL COUNTEREXAMPLE SEARCH for classifier UNDER-CALLS.
  *
- * This is the empirical complement to the mechanized Lean soundness proof (sibling worktree). The
+ * This is the empirical complement to the mechanized Lean soundness proof (formal/). The
  * proof establishes NO-UNDER-CALL over an ABSTRACT model of the classifier: the effective class is
  * never strictly SAFER than the truth (calling an irreversible action recoverable is the one
  * catastrophic error). But the proof, like every proof, has an assumption it

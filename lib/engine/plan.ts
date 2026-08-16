@@ -9,8 +9,9 @@
  *
  * Each compensation declares its `restoration` guarantee — `exact` (the prior state is
  * restored bit-for-bit) vs `semantic` (an equal-and-opposite action; a refund is not an
- * un-charge). Toffoli PLANS the restitution; in v1 it does not execute it. Every
- * compensating action carries an idempotency guard so the plan is safe to re-run.
+ * un-charge). This module only PLANS: running a plan is a separate, gated step through
+ * lib/runtime/safe-executor.ts, which is plan-only by default. Every compensating action
+ * carries an idempotency guard so the plan is safe to re-run.
  *
  * Zero dependencies.
  */

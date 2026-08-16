@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "The undo layer for AI agents — classifies every agent action reversible / compensable / irreversible, plans the restitution, and escalates only what truly can't be undone. Measured as an eval.",
+  "description": "The undo layer for AI agents \u2014 classifies every agent action reversible / compensable / irreversible, plans the restitution, and escalates only what truly can't be undone. Measured as an eval.",
   "keywords": [
     "ai-agents",
     "agent-safety",
@@ -56,7 +56,8 @@
     "sql-recover": "NODE_NO_WARNINGS=1 tsx lib/exec/sql-world.ts",
     "proof:check": "cd formal && lake build",
     "proof:diff": "tsx formal/diff_check.ts",
-    "gate": "tsx lib/gate.ts"
+    "gate": "tsx lib/gate.ts",
+    "gate:mutate": "tsx lib/gate-mutate.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
@@ -74,6 +75,8 @@
     "vitest": "^4.1.8"
   },
   "overrides": {
-    "esbuild": "0.28.1"
+    "esbuild": "0.28.1",
+    "fast-uri": "^3.1.4",
+    "postcss": "^8.5.18"
   }
 }

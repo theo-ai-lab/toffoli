@@ -7,9 +7,13 @@ import {
   callToolByName,
   handleRpcMessage,
   TOOL_DEFINITIONS,
+  PROTOCOL_VERSION,
+  SUPPORTED_PROTOCOL_VERSIONS,
   type ToffoliMcpDeps,
 } from "./server";
 import { World } from "../exec/world";
+import { attestSigned, generateInstrumentKeypair } from "../engine/attest";
+import { DEFAULT_AUTO_POLICY, decideAuto } from "../runtime/policy";
 
 // Inject an empty env (no kill-switch) and the deterministic-only path (judge omitted), so the
 // server is offline and reproducible — no API key, no wall-clock, no random ids.
@@ -158,5 +162,160 @@ describe("toffoli MCP JSON-RPC protocol layer", () => {
     expect(note).toBeNull();
     const unknown = await handleRpcMessage(deps, { jsonrpc: "2.0", id: 7, method: "bogus" });
     expect(unknown?.error?.code).toBe(-32601);
+  });
+});
+
+describe("toffoli MCP protocol-version negotiation", () => {
+  const initialize = async (protocolVersion?: unknown) => {
+    const deps = makeDeps();
+    const params = protocolVersion === undefined ? { capabilities: {} } : { protocolVersion, capabilities: {} };
+    const resp = await handleRpcMessage(deps, { jsonrpc: "2.0", id: 1, method: "initialize", params });
+    // Optional all the way down rather than a chain that short-circuits and is
+    // then indexed anyway: the old `(resp?.result as ...)["protocolVersion"]`
+    // turned "the server answered nothing" into a TypeError several lines from
+    // its cause. A missing response now surfaces as an undefined version, which
+    // every caller below already asserts against.
+    const result = resp?.result as Record<string, unknown> | undefined;
+    return result?.["protocolVersion"];
+  };
+
+  it("answers a supported revision with that same revision", async () => {
+    for (const v of SUPPORTED_PROTOCOL_VERSIONS) expect(await initialize(v)).toBe(v);
+  });
+
+  it("NEVER answers with a revision it does not implement — an unknown request is downgraded, not echoed", async () => {
+    // The failure this locks: echoing the client's requested version unconditionally makes the
+    // server claim to speak any revision a client names (including future or nonsense ones) while
+    // it only implements the tool surface of SUPPORTED_PROTOCOL_VERSIONS. The MCP spec requires the
+    // server to answer with a version IT supports when it cannot honour the request.
+    // `2025-11-25` is not hypothetical: it is what @modelcontextprotocol/sdk 1.29's client asks for.
+    for (const v of ["2025-11-25", "9999-12-31", "1999-01-01", "not-a-version", ""]) {
+      const answered = await initialize(v);
+      expect(answered).not.toBe(v);
+      expect(SUPPORTED_PROTOCOL_VERSIONS).toContain(answered);
+    }
+  });
+
+  it("a non-string or absent protocolVersion falls back to the latest supported revision", async () => {
+    expect(await initialize(undefined)).toBe(PROTOCOL_VERSION);
+    expect(await initialize(42)).toBe(PROTOCOL_VERSION);
+    expect(await initialize(null)).toBe(PROTOCOL_VERSION);
+  });
+
+  it("the advertised default is the newest supported revision", () => {
+    expect(SUPPORTED_PROTOCOL_VERSIONS[0]).toBe(PROTOCOL_VERSION);
+    expect(SUPPORTED_PROTOCOL_VERSIONS).toContain(PROTOCOL_VERSION);
+  });
+});
+
+// ── caller-supplied signals: the blast radius, and the gate that closes it ──────
+//
+// `target.recoverable` / `target.externalized` are documented in the tool schema as TRUSTED signals.
+// They arrive over the JSON-RPC boundary from the agent being audited, so "trusted" is a property of
+// the DEPLOYMENT, not of the server. These tests state exactly what one forged boolean buys, and
+// prove the attestation gate takes it back.
+
+describe("toffoli.classify — the blast radius of a forged safe-direction signal", () => {
+  const hardDelete = (target: Record<string, unknown>) => ({ id: "a1", tool: "db.delete", op: "delete", target: { kind: "db.row", id: "42", ...target } });
+
+  it("DOCUMENTED BLAST RADIUS: an unattested recoverable:true turns a hard delete auto-eligible at confidence 1.0", async () => {
+    const deps = makeDeps();
+    const honest = await handleClassify(deps, { action: hardDelete({}), deterministicOnly: true });
+    expect(honest.classification.class).toBe("IRREVERSIBLE");
+    expect(honest.requiresHuman).toBe(true);
+
+    const forged = await handleClassify(deps, { action: hardDelete({ recoverable: true }), deterministicOnly: true });
+    expect(forged.classification.class).toBe("REVERSIBLE");
+    expect(forged.classification.confidence).toBe(1);
+    // The consequence, spelled out: REVERSIBLE + confidence 1.0 + the 'restore' method is exactly
+    // what DEFAULT_AUTO_POLICY auto-executes. One unverified boolean removes the human.
+    const decision = decideAuto(forged.classification, { forActionId: "a1", method: "restore", idempotencyKey: "k", restoration: "exact", rationale: "r" }, DEFAULT_AUTO_POLICY);
+    expect(decision.auto).toBe(true);
+  });
+});
+
+describe("toffoli.classify — caller-required attestation closes it", () => {
+  const RUN = "run-7";
+  const hardDelete = { id: "a1", tool: "db.delete", op: "delete", runId: RUN, target: { kind: "db.row", id: "42", recoverable: true } };
+  const { publicKey, privateKey } = generateInstrumentKeypair();
+  const publicKeyPem = publicKey.export({ type: "spki", format: "pem" }).toString();
+  const signed = (runId: string) =>
+    attestSigned({ actionId: "a1", claim: { recoverable: true }, runId, issuedAt: "2026-06-14T00:00:00Z" }, privateKey);
+
+  it("with attestation required and NONE supplied, the unattested signal is stripped and the delete fails safe", async () => {
+    const deps = makeDeps();
+    const res = await handleClassify(deps, {
+      action: hardDelete,
+      deterministicOnly: true,
+      attest: { runId: RUN, publicKeyPem, attestations: [] },
+    });
+    expect(res.classification.class).toBe("IRREVERSIBLE");
+    expect(res.requiresHuman).toBe(true);
+    expect(res.attestation).toEqual({ applied: true, sanitized: true });
+  });
+
+  it("a VALID attestation from the trusted instrument is honoured", async () => {
+    const deps = makeDeps();
+    const res = await handleClassify(deps, {
+      action: hardDelete,
+      deterministicOnly: true,
+      attest: { runId: RUN, publicKeyPem, attestations: [signed(RUN)] },
+    });
+    expect(res.classification.class).toBe("REVERSIBLE");
+    expect(res.attestation).toEqual({ applied: true, sanitized: false });
+  });
+
+  it("an attestation minted for a DIFFERENT run does not carry over", async () => {
+    const deps = makeDeps();
+    const res = await handleClassify(deps, {
+      action: hardDelete,
+      deterministicOnly: true,
+      attest: { runId: RUN, publicKeyPem, attestations: [signed("some-other-run")] },
+    });
+    expect(res.classification.class).toBe("IRREVERSIBLE");
+    expect(res.attestation).toEqual({ applied: true, sanitized: true });
+  });
+
+  it("a forged signature is rejected", async () => {
+    const deps = makeDeps();
+    const forged = { ...signed(RUN), sig: Buffer.from("not-a-signature").toString("base64") };
+    const res = await handleClassify(deps, { action: hardDelete, deterministicOnly: true, attest: { runId: RUN, publicKeyPem, attestations: [forged] } });
+    expect(res.classification.class).toBe("IRREVERSIBLE");
+  });
+
+  it("omitting attest{} leaves behaviour byte-identical (opt-in, never a silent policy change)", async () => {
+    const deps = makeDeps();
+    const res = await handleClassify(deps, { action: hardDelete, deterministicOnly: true });
+    expect(res.classification.class).toBe("REVERSIBLE");
+    expect(res.attestation).toBeUndefined();
+  });
+
+  it("a malformed attest block is a clean input error, never a silent skip of the gate", async () => {
+    const deps = makeDeps();
+    await expect(handleClassify(deps, { action: hardDelete, deterministicOnly: true, attest: { runId: RUN, attestations: [] } })).rejects.toThrow(/publicKeyPem/);
+    await expect(handleClassify(deps, { action: hardDelete, deterministicOnly: true, attest: { runId: RUN, publicKeyPem, attestations: {} } })).rejects.toThrow(/attestations/);
+    await expect(handleClassify(deps, { action: hardDelete, deterministicOnly: true, attest: { runId: RUN, publicKeyPem: "not-a-key", attestations: [] } })).rejects.toThrow(/publicKeyPem/);
+  });
+
+  it("a malformed attestation entry is a loud input error, not a silently dropped one", async () => {
+    const deps = makeDeps();
+    for (const bad of [null, "nope", { runId: RUN }, { actionId: "a1", runId: RUN, sig: "x" }]) {
+      await expect(handleClassify(deps, { action: hardDelete, deterministicOnly: true, attest: { runId: RUN, publicKeyPem, attestations: [bad] } })).rejects.toThrow(
+        /attest\.attestations\[0\]/,
+      );
+    }
+  });
+
+  it("toffoli.recover applies the same gate to every action in the run", async () => {
+    const world = new World();
+    const deps = makeDeps(world);
+    const res = await handleRecover(deps, {
+      actions: [hardDelete],
+      deterministicOnly: true,
+      attest: { runId: RUN, publicKeyPem, attestations: [] },
+    });
+    expect(res.classifications[0]!.class).toBe("IRREVERSIBLE");
+    expect(res.attestation).toEqual({ applied: true, sanitized: 1 });
+    expect(res.planSummary.escalations).toBe(1);
   });
 });

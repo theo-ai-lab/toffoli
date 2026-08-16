@@ -17,7 +17,7 @@ import { KILL_SWITCH_ENV } from "./mode";
 import type { RuntimeReport } from "./safe-executor";
 
 const clock = () => "2026-06-06T00:00:00Z";
-const runbookUrl = "https://github.com/<you>/toffoli#operations"; // illustrative: where an operator runbook link would go
+const runbookUrl = "https://runbooks.example.internal/toffoli-recovery"; // illustrative: where an operator's runbook link would go
 
 function render(title: string, r: RuntimeReport, sink: InMemorySink): string {
   const lines = [
