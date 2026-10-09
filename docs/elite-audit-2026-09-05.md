@@ -102,8 +102,8 @@ access.
 ## Verdict 2 — External Adoption / Production Validation
 
 **Unproven. No external users** — unchanged, and checked again today against the live
-repository: **0 stars, 0 forks, 0 watchers, 0 external issues**, one contributor
-(`theo-ai-lab`), and the only open pull request is this one. No third party has wired the
+repository: **0 stars, 0 forks, 0 watchers, 0 external issues**, and the only open
+pull request is this one. No third party has wired the
 MCP surface to a real agent, and no undo has been performed against anyone else's
 production system. Build quality above does not substitute for this, and this does not
 lower the verdict above.

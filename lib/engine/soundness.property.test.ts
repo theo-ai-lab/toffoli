@@ -20,7 +20,7 @@
  *     fail-safe lens are actually exercised, and the property would catch a wrong-but-consistent rule in
  *     the over-call direction. The `non-vacuity` test asserts both are witnessed (the `>=` is not secretly `===`).
  *
- * This is the high-coverage empirical check a solo artifact can execute — NOT a proof. The exhaustive
+ * This is a high-coverage empirical check, not a proof. The exhaustive
  * small-scope model-check and the mechanized proof are the named remainders in THEORY.md §4.
  */
 
